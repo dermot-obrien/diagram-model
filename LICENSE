@@ -1,0 +1,61 @@
+# Licensing
+
+diagram-model is permissively licensed to encourage the widest possible
+adoption: private, public, academic and commercial. Attribution is the primary
+expectation.
+
+## Two licences, by file type
+
+| Asset | Licence | SPDX identifier |
+|-------|---------|-----------------|
+| Documentation, skill instructions, examples and diagrams (Markdown, YAML, TOML examples, images) | Creative Commons Attribution 4.0 International | `CC-BY-4.0` |
+| Executable code and its declarations (Python under `bin/`, `src/` and `tests/`, `scripts/`, `pyproject.toml`, plugin manifests, CI workflows) | Apache License, Version 2.0 | `Apache-2.0` |
+
+Per-file licensing is declared with SPDX identifiers and the `REUSE.toml`
+manifest at the repository root, following the
+[REUSE Specification 3.3](https://reuse.software/spec-3.3/). The full licence
+texts are in `LICENSES/`. The skill directory, `skills/model/`, carries
+its own copy of this file, the licence texts and the `NOTICE`, so a copy of that
+directory on its own is complete.
+
+## Origin
+
+This work is derived from the `model` skill of AI-Assisted Work by
+Dermot O'Brien, https://github.com/dermot-obrien/ai-assisted-work, which is
+licensed on the same terms. `NOTICE` records the source repository, path and
+commit it was taken from. Keep `NOTICE` with any copy or derivative, as
+Apache-2.0 section 4(d) requires.
+
+## What you may do
+
+- Use it in any context, including commercial work.
+- Apply it on paid client engagements.
+- Embed it in commercial products and internal tools.
+- Modify, fork and redistribute it.
+- Translate it.
+
+## What we ask in return
+
+- Attribute the original. Both CC BY 4.0 and Apache-2.0 require attribution
+  to the original author. Keep author, copyright and `NOTICE` contents intact,
+  and link back to https://github.com/dermot-obrien/diagram-model when
+  reasonable.
+- Indicate changes. If you modify the work, mark what you changed.
+
+## Trademark notice
+
+"AI-Assisted Work" is a trademark of Dermot O'Brien. It is named here only to identify where this work came from.
+The licences above grant rights to the content and code only; they do not grant
+rights to use that mark, and they do not imply endorsement of a derivative.
+
+## Contributions
+
+By submitting a contribution, you agree that it is licensed under the same
+terms as the file it modifies (CC BY 4.0 for content, Apache-2.0 for code). See
+`CONTRIBUTING.md`.
+
+## Copyright
+
+Copyright (c) 2026 Dermot O'Brien.
+
+Licensed under CC BY 4.0 (content) and Apache-2.0 (code) as described above.

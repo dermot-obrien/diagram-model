@@ -1,0 +1,22 @@
+{
+  "name": "diagram-model",
+  "description": "The diagram-model plugin, shipping the model skill, as a Claude Code plugin.",
+  "owner": {
+    "name": "Dermot O'Brien",
+    "url": "https://github.com/dermot-obrien"
+  },
+  "plugins": [
+    {
+      "name": "diagram-model",
+      "source": "./",
+      "description": "Treat a diagram and a document as two views of one model: extract, emit, sync, validate and render between Markdown tables, draw.io, JSON and YAML. Ships the model skill.",
+      "version": "0.6.0",
+      "category": "documentation",
+      "tags": [
+        "drawio",
+        "diagram",
+        "markdown"
+      ]
+    }
+  ]
+}

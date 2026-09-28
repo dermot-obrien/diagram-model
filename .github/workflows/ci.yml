@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2026 Dermot O'Brien
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  skills:
+    name: Agent Skills validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Zero-dependency on purpose, so this job needs no install step.
+      - name: Validate skills against the agentskills.io spec
+        run: node scripts/validate-skills.mjs skills
+
+  model:
+    name: model tests (Python ${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # model's YAML support is optional; the tests cover it.
+      - name: Install
+        run: python -m pip install pyyaml
+      - name: Test
+        run: python -m unittest discover -s skills/model/tests
+
+  plugin:
+    name: Plugin manifests agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versions agree across SKILL.md, pyproject.toml, __init__.py and the plugin manifests
+        run: |
+          skill=$(sed -n 's/^  version: "\(.*\)"/\1/p' skills/model/SKILL.md)
+          py=$(sed -n 's/^version = "\(.*\)"/\1/p' skills/model/pyproject.toml)
+          init=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' skills/model/src/model/__init__.py)
+          plugin=$(node -p "require('./.claude-plugin/plugin.json').version")
+          market=$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].version")
+          echo "SKILL.md $skill, pyproject $py, __init__ $init, plugin.json $plugin, marketplace.json $market"
+          test "$skill" = "$py" && test "$py" = "$init" && test "$init" = "$plugin" && test "$plugin" = "$market"
+
+  reuse:
+    name: REUSE compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fsfe/reuse-action@v6

@@ -1,0 +1,63 @@
+version = 1
+
+# diagram-model is dual-licensed, on the same terms as AI-Assisted Work,
+# from which it is derived (see NOTICE):
+#   - Documentation, skill instructions, templates, examples and diagrams are
+#     licensed under CC BY 4.0.
+#   - Executable code and its declarations are licensed under Apache-2.0.
+#
+# This file follows the REUSE Specification 3.3 (https://reuse.software/).
+# It applies bulk licensing rules to files where adding an SPDX header in
+# the file itself is impractical (Markdown, JSON models, draw.io, images). Source code
+# files SHOULD declare an SPDX-License-Identifier header inline; the rules
+# below act as a safety net.
+
+# --- Documentation, skill instructions, templates, examples, diagrams ---
+[[annotations]]
+path = [
+  "**.md",
+  "**.yaml",
+  "**.yml",
+  "**.json",
+  "**.drawio",
+  "**.png",
+  "**.svg",
+  "**.txt",
+  "skills/**",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Dermot O'Brien"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# --- Executable code and its declarations (override the broad rule above) ---
+[[annotations]]
+path = [
+  "skills/**/bin/**",
+  "skills/**/src/**",
+  "skills/**/tests/**",
+  "skills/**/scripts/**",
+  "skills/**/inputs.toml",
+  "skills/**/pyproject.toml",
+  "skills/**.sh",
+  "scripts/**",
+  ".github/workflows/**",
+  ".claude-plugin/**",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Dermot O'Brien"
+SPDX-License-Identifier = "Apache-2.0"
+
+# --- Repository metadata files (no creative content; CC BY 4.0 by default) ---
+[[annotations]]
+path = [
+  ".gitignore",
+  ".gitattributes",
+  "REUSE.toml",
+  "LICENSE",
+  "NOTICE",
+  "skills/**/LICENSE",
+  "skills/**/NOTICE",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Dermot O'Brien"
+SPDX-License-Identifier = "CC-BY-4.0"

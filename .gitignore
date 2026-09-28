@@ -1,0 +1,19 @@
+# Agent configuration a contributor runs against this repository locally.
+CLAUDE.md
+/.cursor/
+/.claude/
+
+# Node
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Build and scratch output
+dist/
+.tmp/
+*.log
