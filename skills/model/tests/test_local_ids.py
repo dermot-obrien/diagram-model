@@ -405,6 +405,23 @@ class ScanTests(Base):
         self.assertEqual([os.path.basename(s) for s in data["skipped"]], ["notes.md"])
         self.assertEqual(code, 1)
 
+    def test_scan_from_above_reads_each_documents_own_binding(self):
+        """A scan started above the binding file, or across several repositories, reads each
+        model with the binding file nearest to it, not the one nearest the scanned folder."""
+        m = markdown.read(self.doc, self.cfg)
+        drawio.write(m, os.path.join(self.dir, "components.drawio"), self.cfg)
+        outer = tempfile.mkdtemp()
+        try:
+            repo = os.path.join(outer, "repo")
+            shutil.copytree(self.dir, repo)
+            code, out, _err = self.run_cli("scan", outer, "--recursive", "--json")
+            data = json.loads(out)
+            by_doc = {os.path.basename(e["doc"]): e for e in data["models"]}
+            self.assertEqual(by_doc["index.md"]["result"], "ok", by_doc["index.md"]["findings"])
+            self.assertEqual(code, 0)
+        finally:
+            shutil.rmtree(outer, ignore_errors=True)
+
     def test_validate_uses_declared_diagram(self):
         m = markdown.read(self.doc, self.cfg)
         drawio.write(m, os.path.join(self.dir, "components.drawio"), self.cfg)

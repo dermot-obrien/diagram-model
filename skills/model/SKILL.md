@@ -4,7 +4,7 @@ description: Treat a diagram and a document as two views of one model of boxes a
 license: CC-BY-4.0 AND Apache-2.0. Content under CC BY 4.0, code under Apache-2.0; see LICENSE and NOTICE.
 compatibility: Python 3.9 or newer; Python 3.11 or newer to read a binding file. Rendering needs draw.io desktop installed (the installed build, not the portable exe). Reading YAML needs PyYAML; writing YAML needs nothing.
 metadata:
-  version: "0.8.1"
+  version: "0.8.2"
   homepage: https://github.com/dermot-obrien/diagram-model
   x-skill-requires: ""
   x-derived-from: "https://github.com/dermot-obrien/ai-assisted-work/tree/ac5c7ecfc3f7872737b5760906350efaa4441470/skills/model"
