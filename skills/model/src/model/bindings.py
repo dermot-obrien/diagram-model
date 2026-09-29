@@ -337,6 +337,13 @@ def report(cfg, skill_dir: str, skill: str = "model") -> tuple:
         issues.append(Issue("error", search["from"],
                             f"the patterns root {search['patternsRoot']} does not exist"))
 
+    # Links from declared identifiers to their pages, tried in order.
+    payload["links"] = {
+        "site": cfg.link_site, "target": cfg.link_target,
+        "rules": [{"match": r.match, "locate": r.locate, "href": r.href,
+                   **({"target": r.target} if r.target else {})} for r in cfg.links],
+    }
+
     contract = load_contract(skill_dir)
     if contract:
         values = dict(cfg.suite.get(skill, {}))

@@ -326,9 +326,16 @@ def composition(m: Model, cfg) -> list:
     return composition_mod.findings(m, cfg)
 
 
+def links(m: Model, cfg) -> list:
+    """Boxes a [[links]] rule matches but whose page is not found: see links.py."""
+    from . import links as links_mod
+    return links_mod.findings(m, cfg)
+
+
 def check(doc: Model, cfg, diagram: Model = None) -> list:
     """Every rule that applies to a document, and to its diagram when there is one."""
-    findings = structural(doc, cfg) + catalogue(doc, cfg) + mapping(doc, cfg) + composition(doc, cfg)
+    findings = (structural(doc, cfg) + catalogue(doc, cfg) + mapping(doc, cfg)
+                + composition(doc, cfg) + links(doc, cfg))
     if diagram is not None:
         findings += [f for f in structural(diagram, cfg)
                      if f.rule in ("node_duplicate_id", "id_attr_mismatch",

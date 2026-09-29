@@ -18,6 +18,7 @@ reader sees each node once per page. Layers keep one set of shapes and one id sp
 from __future__ import annotations
 
 import base64
+import os
 import re
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -135,6 +136,16 @@ def regions(m, boxes, names=None, cfg=None) -> list:
         out.append({"participant": key, "label": label, "x": round(x0), "y": round(y0),
                     "w": round(x1 - x0), "h": round(y1 - y0)})
     return out
+
+
+def link_attrs(cfg, ident, page_dir) -> dict:
+    """draw.io's own `link` and `linkTarget` for a box a [[links]] rule resolves, so the
+    box is clickable in draw.io and in its exports; {} when no rule resolves it."""
+    from . import links
+    link = links.resolve(cfg, ident, page_dir)
+    if link is None or not link.href:
+        return {}
+    return {"link": link.href, "linkTarget": "_self" if link.target == "same" else "_blank"}
 
 
 def region_cell_id(participant) -> str:
@@ -419,8 +430,10 @@ def write(m: Model, path, cfg, style=None) -> None:
         grp = f' {cfg.group_attr}="{_esc(n.group)}"' if n.group else ""
         kind = f' {cfg.kind_attr}="{_esc(n.kind)}"' if n.kind else ""
         label = n.label or n.id
+        lk = link_attrs(cfg, n.id, os.path.dirname(os.path.abspath(path)))
+        linked = "".join(f' {k}="{_esc(v)}"' for k, v in lk.items())
         out.append(f'        <object id="{_esc(cfg.cell_id_for(n.id))}" label="{_esc(label)}" '
-                   f'{cfg.attr_for(n.id)}="{_esc(n.id)}"{grp}{kind}{extra}>')
+                   f'{cfg.attr_for(n.id)}="{_esc(n.id)}"{grp}{kind}{extra}{linked}>')
         out.append(f'          <mxCell style="{node_style}" vertex="1" parent="1">')
         out.append(f'            <mxGeometry x="{x}" y="{y}" width="{NODE_W}" '
                    f'height="{NODE_H}" as="geometry" />')

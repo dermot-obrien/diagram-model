@@ -119,6 +119,11 @@ columns = { step = "Step", actor = "Actor", action = "Action", edge = "Interface
 path   = "catalogue/components.csv"
 column = "id"
 
+[[links]]                        # optional: a declared id links to its page
+match  = 'SVC-[0-9]{2}'
+locate = "services/*/{id}-*"
+href   = "https://example.org/services/{located}/"
+
 [rules]
 node_id_mismatch = "warn"
 edge_missing_id  = "off"
@@ -153,6 +158,7 @@ Every rule has a severity of `error`, `warn` or `off`. A rule that is right for 
 | `catalogue_unreadable` | A declared catalogue that is missing, has the wrong column, or is empty |
 | `not_in_catalogue` | An identifier the project does not recognise |
 | `doc_not_in_diagram`, `diagram_not_in_doc` | A row nobody drew, or a shape nobody wrote down |
+| `link_unresolved` | A `[[links]]` rule matches a box's id but its `locate` glob finds nothing, so the box is not linked |
 | `uses_*`, `participant_*`, `composition_cycle`, `scenario_start_finish`, `step_uses_mismatch` | A participation step whose participating pattern does not resolve, runs the composite pattern again, binds boxes that are not there, joins at the wrong box, is still `TBD`, or leaves an approved composite pattern resting on an unapproved one; a declared Start or Finish the steps do not bear out |
 
 The last five are the ones that earn their keep. Anyone can see an unlabelled box. Nobody can see, by looking, that an arrow now points somewhere else.

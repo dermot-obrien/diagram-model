@@ -34,6 +34,13 @@ columns = { step = "Step", actor = "Actor", action = "Action", edge = "Interface
 # column = "id"
 # level  = "physical"
 
+# Optional. A declared identifier links to its page, in the walkthrough and in draw.io.
+# link_site and link_target ("new" or "same") go under [model]; rules are tried in order.
+# [[links]]
+# match  = '(SVC|EXT)-[0-9]{2}'
+# locate = "services/*/{id}-*"          # {located}: the match relative to "services"
+# href   = "https://example.org/services/{located}/"
+
 # [style]
 # region = "rounded=1;dashed=1;fillColor=none;strokeColor=#5B6474;"   # participating patterns' regions
 

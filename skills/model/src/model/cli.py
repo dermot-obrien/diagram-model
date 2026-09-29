@@ -89,7 +89,8 @@ def cmd_validate(a) -> int:
     else:
         other = None
         findings = (validate_mod.structural(primary, cfg) + validate_mod.catalogue(primary, cfg)
-                    + validate_mod.mapping(primary, cfg) + validate_mod.composition(primary, cfg))
+                    + validate_mod.mapping(primary, cfg) + validate_mod.composition(primary, cfg)
+                    + validate_mod.links(primary, cfg))
 
     # A composite pattern, whose scenarios run other patterns, gets a one-line summary of
     # its composition; `model composition` prints the tree.
@@ -262,7 +263,7 @@ def cmd_doctor(a) -> int:
     reading the binding and the binding pointing somewhere wrong, into one visible one.
     """
     here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    cfg = config_mod.load(a.config, near=a.near or os.getcwd())
+    cfg = config_mod.load(a.config, near=a.near or a.doc or os.getcwd())
 
     # Any skill in the suite can be checked from here. A prose skill declares its
     # contract in inputs.toml and borrows this resolver rather than shipping a runtime
@@ -277,6 +278,18 @@ def cmd_doctor(a) -> int:
                         f"    found beside it: {', '.join(siblings) or '(none)'}", 3)
         skill_dir = found
     payload, issues = bindings_mod.report(cfg, skill_dir, skill=skill)
+    if a.doc:
+        # Which of the document's boxes the link rules resolve, and to what.
+        from . import links as links_mod
+        doc = markdown.read(a.doc, cfg)
+        payload["links"]["doc"] = a.doc
+        payload["links"]["resolved"] = links_mod.report(doc, cfg)
+        for f in links_mod.findings(doc, cfg):
+            issues.append(bindings_mod.Issue("warn", f.where, f.message))
+        if payload["result"] == "ok" and payload["links"]["resolved"] and any(
+                "problem" in v for v in payload["links"]["resolved"].values()):
+            payload["result"] = "warn"
+        payload["issues"] = [i.to_dict() for i in issues]
 
     if a.json:
         print(json.dumps(payload, indent=2))
@@ -291,6 +304,15 @@ def cmd_doctor(a) -> int:
         ch = payload.get("composition") or {}
         print(f"  patterns root: {ch.get('patternsRoot') or '(unbound)'}  [{ch.get('from')}]")
         print(f"  approved     : {', '.join(ch.get('approvedStatuses') or [])}")
+        lk = payload.get("links") or {}
+        if lk.get("rules"):
+            print(f"  link site    : {lk.get('site') or '(unset)'}; target {lk.get('target')}")
+            for r in lk["rules"]:
+                print(f"  link rule    : {r['match']} -> {r['href']}"
+                      + (f"  (locate {r['locate']})" if r.get("locate") else "")
+                      + (f"  [target {r['target']}]" if r.get("target") else ""))
+        for ident, v in sorted((lk.get("resolved") or {}).items()):
+            print(f"  link         : {ident} -> {v.get('href') or 'unresolved: ' + v.get('problem', '')}")
         if payload["siblings"]:
             print(f"  siblings     : {', '.join(payload['siblings'])}")
         for k, v in sorted(payload["resolved"].items()):
@@ -315,7 +337,8 @@ def cmd_animate(a) -> int:
     cfg = config_mod.load(a.config, near=a.doc)
     try:
         data = animate_mod.build(a.doc, cfg, diagram_path=a.diagram, image=a.image,
-                                 drawio_bin=a.drawio_bin, force=a.force, render_mode=a.render)
+                                 drawio_bin=a.drawio_bin, force=a.force, render_mode=a.render,
+                                 out=a.out)
         r = animate_mod.write(data, a.out or animate_mod.default_out(a.doc),
                               accent=a.accent, interval=a.interval)
     except animate_mod.AnimateError as e:
@@ -325,7 +348,7 @@ def cmd_animate(a) -> int:
     steps = ", ".join(f"{k} {n}" for k, n in r["scenarios"].items())
     print(f"  {_shown(r['path'])} ({r['bytes'] // 1024} KB; {steps} steps). Opens from disk.")
     for n in r.get("notes", []):
-        print(f"  note: {n}", file=sys.stderr)
+        print(f"  {n}" if n.startswith("warn") else f"  note: {n}", file=sys.stderr)
     return 0
 
 
@@ -455,6 +478,7 @@ def build_parser():
     d = common(sub.add_parser("doctor", help="check how this skill is bound to the repository"))
     d.add_argument("--skill", help="check a sibling skill's contract instead of model's")
     d.add_argument("--near", help="resolve the binding file from here (default: cwd)")
+    d.add_argument("--doc", help="also say which of this document's boxes the link rules resolve")
     d.add_argument("--json", action="store_true")
     d.set_defaults(fn=cmd_doctor)
 

@@ -21,11 +21,12 @@ correct trade for contiguity and endpoint agreement holding by construction.
 from __future__ import annotations
 
 import html
+import os
 import re
 import xml.etree.ElementTree as ET
 
 from .drawio import (REGIONS_LAYER, REGIONS_LAYER_ID, REGION_STYLE, regions, region_cell_id,
-                     participant_names, uses_label)
+                     participant_names, uses_label, link_attrs)
 from .drawio import (NODE_W, NODE_H, ROW_GAP, MARGIN, BADGE, OBJECT_TAGS, RESERVED,
                      FLOW_USES_STYLE, _strip_html)
 
@@ -133,6 +134,38 @@ def _wrap(root, el):
     return obj, el
 
 
+def _sync_link(root, cfg, nid, drawn_nodes, page_dir, dry_run) -> list:
+    """Keep a box's draw.io link in step with the [[links]] rules: set it when a rule
+    resolves the id, remove it when a rule matches but no longer resolves. A box no rule
+    matches keeps whatever link its author gave it."""
+    from . import links
+    link = links.resolve(cfg, nid, page_dir)
+    if link is None:
+        return []
+    el, obj, mx = drawn_nodes[nid]
+    want = link_attrs(cfg, nid, page_dir)
+    have = {k: obj.get(k) for k in ("link", "linkTarget") if obj is not None and obj.get(k)}
+    if want == have:
+        return []
+    if want:
+        change = Change("update", "node", nid, f"link -> {want['link']}")
+        if not dry_run:
+            if obj is None:
+                obj, mx = _wrap(root, el)
+                drawn_nodes[nid] = (obj, obj, mx)
+            for k in ("link", "linkTarget"):
+                obj.attrib.pop(k, None)
+            for k, v in want.items():
+                obj.set(k, v)
+        return [change]
+    if not have:
+        return []
+    if not dry_run:
+        for k in ("link", "linkTarget"):
+            obj.attrib.pop(k, None)
+    return [Change("update", "node", nid, f"link removed; {link.problem}")]
+
+
 def sync(doc, path, cfg, prune=False, dry_run=False, adopt=False) -> list:
     """Reconcile `path` with the model `doc`. Returns the changes made or proposed.
 
@@ -141,6 +174,7 @@ def sync(doc, path, cfg, prune=False, dry_run=False, adopt=False) -> list:
     model without losing its layout.
     """
     tree = ET.parse(path)
+    page_dir = os.path.dirname(os.path.abspath(path))
     mxfile = tree.getroot()
     diagrams = mxfile.findall("diagram")
     if not diagrams:
@@ -218,12 +252,15 @@ def sync(doc, path, cfg, prune=False, dry_run=False, adopt=False) -> list:
                 changes.append(Change("update", "node", nid, f"{cfg.group_attr} -> {n.group}"))
                 if not dry_run:
                     obj.set(cfg.group_attr, n.group)
+            changes += _sync_link(root, cfg, nid, drawn_nodes, page_dir, dry_run)
         else:
             changes.append(Change("add", "node", nid, "placed below the existing shapes"))
             if not dry_run:
                 max_y += NODE_H + ROW_GAP
-                root.append(_new_node(n, cfg, cfg.attr_for(nid), base_id, MARGIN,
-                                      int(max_y)))
+                node = _new_node(n, cfg, cfg.attr_for(nid), base_id, MARGIN, int(max_y))
+                for k, v in link_attrs(cfg, nid, page_dir).items():
+                    node.set(k, v)
+                root.append(node)
 
     for nid, (el, obj, mx) in drawn_nodes.items():
         if nid in wanted:

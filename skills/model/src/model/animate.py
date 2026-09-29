@@ -27,7 +27,7 @@ import struct
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import composition, drawio, markdown, render, validate
+from . import composition, drawio, links, markdown, render, validate
 
 DEFAULT_ACCENT = "#D6453D"
 TOLERANCE = 0.015          # relative difference between image and diagram aspect ratios
@@ -182,9 +182,13 @@ def current_view(diagram_path, base_name):
 # ------------------------------------------------------------------ assembly
 
 def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=False,
-          render_mode="auto"):
-    """Everything the page needs, as a dict. Raises AnimateError listing every problem."""
+          render_mode="auto", out=None):
+    """Everything the page needs, as a dict. Raises AnimateError listing every problem.
+
+    `out` is where the page will be written, default `default_out(doc_path)`; a link
+    rule's `{rel}` is relative to it."""
     doc = markdown.read(doc_path, cfg)
+    page_dir = os.path.dirname(os.path.abspath(out or default_out(doc_path)))
     if not diagram_path:
         block = doc.attrs.get("model") or {}
         if not block.get("diagram"):
@@ -240,7 +244,7 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
             step = {"n": g.step, "from": g.actor, "to": g.target, "edge": edge,
                     "action": d.action.strip()}
             if d.uses:
-                step["uses"] = _uses(d.uses, doc_path, cfg, resolver)
+                step["uses"] = _uses(d.uses, doc_path, cfg, resolver, page_dir)
             steps.append(step)
         for s in ds.steps:
             if s.step not in {g.step for g in gs.steps}:
@@ -312,6 +316,20 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
     for nid in sorted(used_nodes):
         n = doc_nodes[nid]
         nodes[nid] = {"box": px(boxes[node_cell[nid]]), "name": n.label or nid}
+        link = links.resolve(cfg, nid, page_dir)
+        if link is not None and link.href:
+            nodes[nid].update({"href": link.href, "target": link.target})
+    # Every box a link rule resolves gets a hotspot on the view, used in a step or not.
+    hot = []
+    for n in doc.nodes:
+        cell = node_cell.get(n.id)
+        if not boxes.get(cell) or any(h["id"] == n.id for h in hot):
+            continue
+        link = links.resolve(cfg, n.id, page_dir)
+        if link is not None and link.href:
+            hot.append({"id": n.id, "name": n.label or n.id, "box": px(boxes[cell]),
+                        "href": link.href, "target": link.target})
+    notes = [f"warn  {f.where}: {f.message}  [{f.rule}]" for f in links.findings(doc, cfg, page_dir)]
     edges = {}
     for sc in scenarios:
         for st in sc["steps"]:
@@ -321,11 +339,11 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
                                      "details": [[k.replace("_", " ").capitalize(), v]
                                                  for k, v in e.attrs.items()][:3]}
     return {"title": doc.name or os.path.basename(doc_path), "size": [W, H], "nodes": nodes,
-            "edges": edges, "scenarios": scenarios, "mime": mime,
+            "edges": edges, "scenarios": scenarios, "hot": hot, "notes": notes, "mime": mime,
             "image": base64.b64encode(view).decode("ascii")}
 
 
-def _uses(value, doc_path, cfg, resolver):
+def _uses(value, doc_path, cfg, resolver, page_dir=None):
     """A participation step's drill-in: the ref, and the participating pattern's
     walkthrough when it resolves.
 
@@ -336,6 +354,11 @@ def _uses(value, doc_path, cfg, resolver):
     out = {"ref": val, "kind": kind}
     if kind == "ref":
         out["key"] = key
+        # The participating pattern's own page, when a link rule covers its id: a second,
+        # lesser link beside the drill-in to its walkthrough.
+        link = links.resolve(cfg, pid, page_dir)
+        if link is not None and link.href:
+            out["page"] = {"href": link.href, "target": link.target, "id": pid}
         paths, _where = resolver.find(pid, doc_path)
         if paths:
             out["_target"] = os.path.abspath(default_out(paths[0]))
@@ -380,7 +403,7 @@ def write(data, out, accent=DEFAULT_ACCENT, interval=3.2):
         raise AnimateError(f"  ! --accent must be a #RRGGBB colour, not {accent!r}")
     img = data.pop("image")
     mime = data.pop("mime", "image/png")
-    notes = _links(data, out)
+    notes = data.pop("notes", []) + _links(data, out)
     store = "model-animate:" + re.sub(r"[^a-z0-9]+", "-", data["title"].lower()).strip("-")
     html = (_TEMPLATE
             .replace("__TITLE__", _esc(data["title"]))
@@ -449,6 +472,12 @@ ol li button[aria-current="step"] .k,ol li.done .k{background:var(--accent);colo
 .drill a{color:var(--ink);font-weight:600;text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:4px 8px;display:inline-block;margin-top:6px}
 .chip{color:var(--muted);font-size:12px;margin-left:4px}
 .sub{cursor:pointer}
+/* Links to a box's own page: hotspots on the view, and names in the steps and the pop-up */
+.hot{cursor:pointer}.hot rect{fill-opacity:0}.hot:hover rect,.hot:focus rect{fill-opacity:.12}
+.who{font-size:12px;color:var(--muted);margin:0 0 4px 36px}
+.who a,.pop .m a,.drill a.page-link{color:var(--pick);text-decoration:underline}
+.pop .m a{pointer-events:auto}
+.drill a.page-link{border:0;padding:0;margin-left:10px;font-weight:400}
 /* BPMN's call-activity marker: a small boxed plus, drawn rather than a glyph so it always renders */
 .cam{display:inline-block;position:relative;width:11px;height:11px;border:1.5px solid currentColor;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .cam::before,.cam::after{content:"";position:absolute;left:50%;top:50%;background:currentColor;transform:translate(-50%,-50%)}
@@ -477,7 +506,7 @@ ol li button[aria-current="step"] .k,ol li.done .k{background:var(--accent);colo
             <mask id="m"><rect x="0" y="0" width="__W__" height="__H__" fill="#fff"/><g id="holes"></g></mask>
           </defs>
           <rect id="shade" x="0" y="0" width="__W__" height="__H__" fill="var(--shade)" mask="url(#m)" opacity="0"/>
-          <g id="done"></g><g id="cur"></g>
+          <g id="hot"></g><g id="done"></g><g id="cur"></g>
         </svg>
       </div>
       <div class="pop" id="pop" role="status" aria-live="polite"></div>
@@ -531,7 +560,14 @@ function subBadge(s,x0,y0,g){const u=s.uses,live=!!u.href,col=live?"#fff":GREY,t
 function cam(open){const c=document.createElement("span");c.className=open?"cam open":"cam";c.setAttribute("aria-hidden","true");return c;}
 function drillPanel(s){const dp=$("drill");dp.innerHTML="";dp.hidden=!(s&&s.uses);if(dp.hidden)return;const u=s.uses,p=document.createElement("div");
   p.appendChild(cam(!u.href));p.appendChild(document.createTextNode(u.href?`Step ${s.n} runs the participating pattern ${u.ref}.`:u.kind==="tbd"?`Step ${s.n} runs an open participating pattern, ${u.ref}, not written yet.`:`Step ${s.n} runs ${u.ref}, which has no walkthrough to open.`));dp.appendChild(p);
-  if(u.href){const a=document.createElement("a");a.setAttribute("href",drillTarget(s));a.textContent="Open "+u.ref+" \u2934";dp.appendChild(a);}}
+  if(u.href){const a=document.createElement("a");a.setAttribute("href",drillTarget(s));a.textContent="Open "+u.ref+" \u2934";dp.appendChild(a);}
+  if(u.page){const a=document.createElement("a");opens(a,u.page);a.className="page-link";a.textContent=u.page.id+" page";a.setAttribute("title",tip(u.page.id+" page",u.page));dp.appendChild(a);}}
+function opens(a,t){a.setAttribute("href",t.href);if(t.target!=="same"){a.setAttribute("target","_blank");a.setAttribute("rel","noopener");}}
+function tip(name,t){return name+(t.target==="same"?"":" (opens in a new tab)");}
+function who(id){const n=D.nodes[id]||{},t=id+" "+nm(id);if(!n.href)return document.createTextNode(t);
+  const a=document.createElement("a");opens(a,n);a.textContent=t;a.setAttribute("title",tip(nm(id),n));return a;}
+function hotspots(){const g=$("hot");(D.hot||[]).forEach(h=>{const a=el("a",{class:"hot",tabindex:"-1"},g);opens(a,h);
+  el("rect",{x:h.box[0],y:h.box[1],width:h.box[2],height:h.box[3],rx:8*K,fill:ACC},a);const t=el("title",{},a);t.textContent=tip(h.name,h);});}
 function ring(id,g,strong){const b=B(id);if(b)el("rect",{x:b.x-6*K,y:b.y-6*K,width:b.w+12*K,height:b.h+12*K,rx:10*K,fill:"none",stroke:ACC,"stroke-width":(strong?5:3)*K,class:strong?"pulse":""},g);}
 function hole(id){const b=B(id);if(b)el("rect",{x:b.x-8*K,y:b.y-8*K,width:b.w+16*K,height:b.h+16*K,rx:10*K,fill:"#000"},$("holes"));}
 function badge(id,n,g,k){const b=B(id);if(!b)return;const x=b.x+14*K+k*30*K,y=b.y+2*K;el("circle",{cx:x,cy:y,r:15*K,fill:ACC,stroke:"#fff","stroke-width":3*K},g);const t=el("text",{x,y:y+5.5*K,"text-anchor":"middle","font-size":16*K,"font-weight":700,fill:"#fff","font-family":"system-ui,sans-serif"},g);t.textContent=n;}
@@ -546,7 +582,8 @@ function showPop(s){const p=$("pop"),E=D.edges[s.edge]||{};
   p.innerHTML='<div><span class="n"></span><span class="a"></span></div><div class="m"></div>';
   p.querySelector(".n").textContent=s.n;p.querySelector(".a").textContent=s.action;
   const det=(E.details||[]).map(d=>d[0]+": "+d[1]).join("  ·  ");
-  p.querySelector(".m").textContent=`${s.from} ${nm(s.from)} → ${s.to} ${nm(s.to)}${s.edge?"  ·  "+s.edge:""}${E.label?" "+E.label:""}${det?"  ·  "+det:""}${s.uses?"  ·  runs "+s.uses.ref:""}`;
+  const m=p.querySelector(".m");m.appendChild(who(s.from));m.appendChild(document.createTextNode(" → "));m.appendChild(who(s.to));
+  m.appendChild(document.createTextNode(`${s.edge?"  ·  "+s.edge:""}${E.label?" "+E.label:""}${det?"  ·  "+det:""}${s.uses?"  ·  runs "+s.uses.ref:""}`));
   const c=$("canvas").getBoundingClientRect(),sc=c.width/W,T=(x,y)=>[x*sc*Z.z+Z.tx,y*sc*Z.z+Z.ty];
   const bs=[B(s.from),B(s.to)].filter(Boolean);
   const[ux0,uy0]=T(Math.min(...bs.map(b=>b.x)),Math.min(...bs.map(b=>b.y))),[ux1,uy1]=T(Math.max(...bs.map(b=>b.x+b.w)),Math.max(...bs.map(b=>b.y+b.h)));
@@ -565,7 +602,9 @@ function stop(){clearInterval(timer);timer=null;$("play").innerHTML="&#9654; Pla
 function play(){if(timer){stop();return;}const L=D.scenarios[si].steps.length;if(i>=L-1)go(-1);$("play").innerHTML="&#10074;&#10074; Pause";$("play").setAttribute("aria-label","Pause");go(i+1);timer=setInterval(()=>{if(i>=D.scenarios[si].steps.length-1){stop();return;}go(i+1);},__INTERVAL__);}
 function pick(n){stop();si=n;i=-1;document.querySelectorAll("#tabs button").forEach((b,j)=>b.setAttribute("aria-pressed",j===n));
   const S=D.scenarios[n];$("sname").textContent=S.key+" "+S.name;const ol=$("steps");ol.innerHTML="";
-  S.steps.forEach((s,j)=>{const li=document.createElement("li"),b=document.createElement("button");b.innerHTML='<span class="k"></span><span></span>';b.firstChild.textContent=s.n;b.lastChild.textContent=s.action;if(s.uses){const c=document.createElement("span");c.className="chip";c.appendChild(cam(!s.uses.href));c.appendChild(document.createTextNode(s.uses.ref));b.lastChild.appendChild(c);}b.onclick=()=>{stop();go(j);};li.appendChild(b);ol.appendChild(li);});
+  S.steps.forEach((s,j)=>{const li=document.createElement("li"),b=document.createElement("button");b.innerHTML='<span class="k"></span><span></span>';b.firstChild.textContent=s.n;b.lastChild.textContent=s.action;if(s.uses){const c=document.createElement("span");c.className="chip";c.appendChild(cam(!s.uses.href));c.appendChild(document.createTextNode(s.uses.ref));b.lastChild.appendChild(c);}b.onclick=()=>{stop();go(j);};li.appendChild(b);
+    if((D.nodes[s.from]||{}).href||(D.nodes[s.to]||{}).href){const w=document.createElement("div");w.className="who";w.appendChild(who(s.from));w.appendChild(document.createTextNode(" → "));w.appendChild(who(s.to));li.appendChild(w);}
+    ol.appendChild(li);});
   render();try{localStorage.setItem(__STORE__,S.key);}catch(e){}}
 D.scenarios.forEach((S,n)=>{const b=document.createElement("button");b.textContent=S.key+" "+S.name;b.onclick=()=>pick(n);$("tabs").appendChild(b);});
 $("follow").onclick=()=>{follow=!follow;$("follow").setAttribute("aria-pressed",follow);$("follow").textContent="Zoom to step: "+(follow?"on":"off");render();};
@@ -578,6 +617,7 @@ function fromHash(){let h="";try{h=decodeURIComponent(location.hash.slice(1));}c
     if(h.startsWith(k+"-")){const m=Number(h.slice(k.length+1)),j=S.steps.findIndex(s=>s.n===m);if(j>=0)return[n,j];}}return null;}
 function openHash(){const h=fromHash();if(!h)return false;pick(h[0]);if(h[1]>=0)go(h[1]);return true;}
 window.addEventListener("hashchange",openHash);
+hotspots();
 if(BACK){const a=$("back");a.setAttribute("href",BACK);a.hidden=false;}
 {const sub=D.scenarios.some(S=>S.steps.some(s=>s.uses&&s.uses.href));if(sub)$("hint").textContent+=", D opens a participating pattern";if(BACK)$("hint").textContent+=", B goes back";}
 let start=0;try{const k=localStorage.getItem(__STORE__);const n=D.scenarios.findIndex(s=>s.key===k);if(n>=0)start=n;}catch(e){}

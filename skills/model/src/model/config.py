@@ -74,6 +74,7 @@ DEFAULT_RULES = {
     "participant_unapproved": "error",      # an approved pattern over an unapproved one
     "participant_binding": "error",         # a role binding naming a box that is not there,
                                             # or one box twice on a side
+    "link_unresolved": "warn",        # a link rule matches an id but its page is not found
     "scenario_start_finish": "error", # a declared Start or Finish the steps do not bear out
     "step_uses_mismatch": "warn",     # the document's Uses differs from the diagram's
 }
@@ -124,6 +125,25 @@ class MappingSpec:
     })
 
 
+LINK_TARGETS = ("new", "same")
+
+
+@dataclass
+class LinkRule:
+    """How an identifier becomes a link to its page. `match` is a full-match regex on the
+    id; `locate` an optional glob, relative to the binding file, with `{id}` substituted,
+    whose first match supplies `{located}` and `{rel}`; `href` the template; `target`
+    "new" or "same", or "" to take `[model] link_target`."""
+    match: str
+    href: str
+    locate: str = ""
+    target: str = ""
+
+    @property
+    def match_re(self):
+        return re.compile(self.match)
+
+
 @dataclass
 class Catalogue:
     path: str
@@ -171,6 +191,11 @@ class Config:
     approved_statuses: tuple = DEFAULT_APPROVED
     # validation
     catalogues: list = field(default_factory=list)
+    # links from a declared identifier to its page: [model] link_site and link_target, and
+    # the [[links]] rules, tried in order
+    link_site: str = ""
+    link_target: str = "new"
+    links: list = field(default_factory=list)
     rules: dict = field(default_factory=lambda: dict(DEFAULT_RULES))
     # draw.io styling, passed through to the writer
     style: dict = field(default_factory=dict)
@@ -387,6 +412,25 @@ def load(path: str | None, near: str | None = None) -> Config:
         if v not in SEVERITIES:
             raise SystemExit(f"  ! rule '{k}' has severity '{v}'; expected one of {SEVERITIES}")
         cfg.rules[k] = v
+
+    cfg.link_site = str(m.get("link_site", "") or "")
+    cfg.link_target = str(m.get("link_target", "new") or "new")
+    if cfg.link_target not in LINK_TARGETS:
+        raise SystemExit(f"  ! {path}: [model] link_target is '{cfg.link_target}'; expected "
+                         f"one of {', '.join(LINK_TARGETS)}")
+    for i, r in enumerate(raw.get("links", []) or [], 1):
+        if not isinstance(r, dict) or not r.get("match") or not r.get("href"):
+            raise SystemExit(f"  ! {path}: [[links]] entry {i} needs match and href")
+        try:
+            re.compile(str(r["match"]))
+        except re.error as ex:
+            raise SystemExit(f"  ! {path}: [[links]] entry {i} match is not a valid regex: {ex}")
+        target = str(r.get("target", "") or "")
+        if target and target not in LINK_TARGETS:
+            raise SystemExit(f"  ! {path}: [[links]] entry {i} target is '{target}'; expected "
+                             f"one of {', '.join(LINK_TARGETS)}")
+        cfg.links.append(LinkRule(match=str(r["match"]), href=str(r["href"]),
+                                  locate=str(r.get("locate", "") or ""), target=target))
 
     cfg.style = raw.get("style", {})
     return cfg
