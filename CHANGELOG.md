@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Semanti
 
 ## [Unreleased]
 
+### Added
+
+- `bundle.json`, the bundle manifest DD-11 of AI-Assisted Work defines: the `model` skill at 0.7.0, its purl, its requirements (none), and `python bin/model.py doctor` as its post-install check, which already meets the contract (exit 0 when the bindings resolve, 1 with one line per problem). The marketplace is its `claude-plugin` adapter. The skill itself is unchanged, so its version is too.
+- CI validates `bundle.json` with `scripts/validate-bundle.mjs`, and runs the check in an empty workspace as an installer would. The validator and the schema are copies from AI-Assisted Work, in `scripts/` and `scripts/vendor/`, so CI needs no network.
+
 ## [0.7.0] - 2026-09-29
 
 ### Added
