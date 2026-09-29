@@ -4,11 +4,15 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Semantic versions, with the contract defined as: MAJOR for a changed skill `name`, a removed command, a changed CLI interface or a changed model schema; MINOR for new commands, adapters or rules; PATCH for wording and fixes.
 
-## [Unreleased]
+## [0.7.1] - 2026-09-30
+
+A patch release: nothing in the skill's behaviour changed. It already conformed to the Agent Skills specification: `skills-ref` reported it valid before this release, and its `SKILL.md` is 195 lines and about 3,600 body tokens.
 
 ### Added
 
-- `bundle.json`, the bundle manifest DD-11 of AI-Assisted Work defines: the `model` skill at 0.7.0, its purl, its requirements (none), and `python bin/model.py doctor` as its post-install check, which already meets the contract (exit 0 when the bindings resolve, 1 with one line per problem). The marketplace is its `claude-plugin` adapter. The skill itself is unchanged, so its version is too.
+- CI runs `skills-ref validate` on the skill, the reference validator of the [Agent Skills specification](https://agentskills.io/specification), pinned to a commit, and fails a `SKILL.md` over the specification's guidance of 500 lines or about 5,000 body tokens.
+- The README has an Agent Skills conformance section: what conforming means here, and how to run the same checks locally. CONTRIBUTING lists `skills-ref validate`.
+- `bundle.json`, the bundle manifest DD-11 of AI-Assisted Work defines: the `model` skill, its purl, its requirements (none), and `python bin/model.py doctor` as its post-install check, which already meets the contract (exit 0 when the bindings resolve, 1 with one line per problem). The marketplace is its `claude-plugin` adapter.
 - CI validates `bundle.json` with `scripts/validate-bundle.mjs`, and runs the check in an empty workspace as an installer would. The validator and the schema are copies from AI-Assisted Work, in `scripts/` and `scripts/vendor/`, so CI needs no network.
 
 ## [0.7.0] - 2026-09-29

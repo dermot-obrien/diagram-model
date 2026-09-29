@@ -11,7 +11,7 @@
       "source": "./",
       "strict": false,
       "description": "Treat a diagram and a document as two views of one model: extract, emit, sync, validate and render between Markdown tables, draw.io, JSON and YAML.",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "author": {
         "name": "Dermot O'Brien",
         "url": "https://github.com/dermot-obrien"
