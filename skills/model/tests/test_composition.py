@@ -164,7 +164,7 @@ class Base(unittest.TestCase):
 class ParseTests(Base):
     def test_ref_with_trailing_text(self):
         v = markdown.parse_uses("PAT-905 S1 payment capture", self.cfg())
-        self.assertEqual(v, ("PAT-905 S1", "ref", "PAT-905", "S1", ""))
+        self.assertEqual(v, ("PAT-905 S1", "ref", "PAT-905", "S1", "", []))
 
     def test_ref_with_punctuation(self):
         self.assertEqual(markdown.parse_uses("PAT-905: S2, then more", self.cfg())[:4],
@@ -172,7 +172,7 @@ class ParseTests(Base):
 
     def test_tbd(self):
         self.assertEqual(markdown.parse_uses("TBD fraud scoring", self.cfg()),
-                         ("TBD fraud scoring", "tbd", "", "", "fraud scoring"))
+                         ("TBD fraud scoring", "tbd", "", "", "fraud scoring", []))
         self.assertEqual(markdown.parse_uses("tbd", self.cfg())[:2], ("TBD", "tbd"))
 
     def test_empty_and_dash(self):
@@ -490,7 +490,8 @@ class DrawioTests(Base):
         out, c = self.emit()
         o = self.flow(out, 2)
         self.assertEqual(o.get("uses"), "PAT-905 S1")
-        self.assertEqual(o.get("label"), "2: PAT-905 S1")
+        # BPMN's call-activity marker, in ASCII so draw.io's export renders it.
+        self.assertEqual(o.get("label"), "[+] 2: PAT-905 S1")
         self.assertIn("dashPattern=", o.find("mxCell").get("style"))
         self.assertIsNone(self.flow(out, 1).get("uses"))
         self.assertNotIn("dashPattern=", self.flow(out, 1).find("mxCell").get("style"))
@@ -509,7 +510,10 @@ class DrawioTests(Base):
         self.edit(self.composite, "PAT-905 S1 payment capture", "TBD fraud scoring")
         d = markdown.read(self.composite, c)
         fs = [f for f in validate.check(d, c, drawio.read(out, c)) if f.rule == "step_uses_mismatch"]
-        self.assertEqual(len(fs), 1)
+        # The step's Uses, and the regions: one missing for the TBD, one left for PAT-905.
+        self.assertEqual(len(fs), 3)
+        self.assertTrue(any("TBD fraud scoring has no region" in f.message for f in fs))
+        self.assertTrue(any("region for PAT-905" in f.message for f in fs))
         sync.sync(d, out, c)
         self.assertEqual(self.flow(out, 2).get("uses"), "TBD fraud scoring")
         self.assertEqual([f for f in validate.check(d, c, drawio.read(out, c))
@@ -605,6 +609,358 @@ class AnimateTests(Base):
     def test_page_without_calls_is_unchanged_in_behaviour(self):
         _r, d, _html = self.animate(self.participant)
         self.assertTrue(all("uses" not in s for sc in d["scenarios"] for s in sc["steps"]))
+
+
+# ------------------------------------------------ start and finish, and role binding
+
+HEAD = "### S1 Flow S1\n\n"
+
+
+def ports(start="", finish="", narrative=True):
+    """A scenario's Start and Finish lines, written as authors do: separate paragraphs,
+    with narrative before them."""
+    out = HEAD + ("What this flow proves.\n\n" if narrative else "")
+    if start:
+        out += f"Start: {start}\n\n"
+    if finish:
+        out += f"Finish: {finish}\n\n"
+    return out
+
+
+class PortTests(Base):
+    def test_start_and_finish_are_read(self):
+        self.edit(self.participant, HEAD, ports("ABB-901 Order service", "01 Card processor"))
+        sc = markdown.read(self.participant, self.cfg()).scenario("S1")
+        self.assertEqual((sc.start, sc.finish), ("ABB-901", "01"))
+        d = markdown.read(self.participant, self.cfg()).to_dict()["scenarios"][0]
+        self.assertEqual((d["start"], d["finish"]), ("ABB-901", "01"))
+
+    def test_lines_without_blank_lines_or_narrative(self):
+        self.edit(self.participant, HEAD,
+                  HEAD + "Start: ABB-901 Order service\nFinish: 01 Card processor\n\n")
+        sc = markdown.read(self.participant, self.cfg()).scenario("S1")
+        self.assertEqual((sc.start, sc.finish), ("ABB-901", "01"))
+
+    def test_lines_after_the_table_are_not_ports(self):
+        self.edit(self.participant, "| 2 | 01 Card processor | ABB-901 Order service | return the result | IF-01 |  |\n",
+                  "| 2 | 01 Card processor | ABB-901 Order service | return the result | IF-01 |  |\n\nStart: 01 Card processor\n")
+        self.assertEqual(markdown.read(self.participant, self.cfg()).scenario("S1").start, "")
+
+    def test_without_ports_nothing_is_serialised(self):
+        d = markdown.read(self.participant, self.cfg()).to_dict()["scenarios"][0]
+        self.assertNotIn("start", d)
+        self.assertNotIn("finish", d)
+
+    def test_valid_ports_pass(self):
+        self.edit(self.participant, HEAD, ports("ABB-901 Order service", "ABB-901 Order service"))
+        self.assertNotIn("scenario_start_finish", [r for r, _s in self.rules(self.participant)])
+
+    def test_finish_may_be_the_last_steps_actor(self):
+        self.edit(self.participant, HEAD, ports("ABB-901", "01 Card processor"))
+        self.assertNotIn("scenario_start_finish", [r for r, _s in self.rules(self.participant)])
+
+    def test_start_must_be_the_first_actor(self):
+        self.edit(self.participant, HEAD, ports("01 Card processor"))
+        fs = [f for f in self.findings(self.participant) if f.rule == "scenario_start_finish"]
+        self.assertEqual([f.severity for f in fs], ["error"])
+        self.assertIn("Start 01 is not the first step's actor, ABB-901", fs[0].message)
+
+    def test_finish_must_be_the_last_actor_or_target(self):
+        self.edit(self.participant, "| 2 | 01 Card processor | ABB-901 Order service |",
+                  "| 2 | 01 Card processor | 01 Card processor |")
+        self.edit(self.participant, HEAD, ports(finish="ABB-901"))
+        fs = [f for f in self.findings(self.participant) if f.rule == "scenario_start_finish"]
+        self.assertEqual(len(fs), 1)
+        self.assertIn("Finish ABB-901 is not the last step's actor or target, 01", fs[0].message)
+
+    def test_ports_must_be_boxes(self):
+        self.edit(self.participant, HEAD, ports("ABB-999 Nowhere"))
+        fs = [f for f in self.findings(self.participant) if f.rule == "scenario_start_finish"]
+        self.assertIn("Start ABB-999 is not a box of this pattern", fs[0].message)
+
+    def test_join_uses_the_declared_finish(self):
+        # Declared: the flow leaves at 01, which the composite does not know.
+        self.edit(self.participant, HEAD, ports("ABB-901", "01 Card processor"))
+        fs = [f for f in self.findings() if f.rule == "participant_join"]
+        self.assertEqual(len(fs), 1)
+        self.assertIn("leaves at its declared Finish, 01 Card processor there", fs[0].message)
+        self.assertIn("PAT-905 S1 (01=ABB-901)", fs[0].message)
+        code, out, _err = self.cli("composition", self.composite, "--json")
+        part = json.loads(out)["tree"]["participations"][0]
+        self.assertEqual(part["join"], {"start": "declared", "finish": "declared"})
+        code, out, _err = self.cli("composition", self.composite)
+        self.assertIn("(joined at its declared start and finish)", out)
+
+    def test_join_derived_without_ports(self):
+        code, out, _err = self.cli("composition", self.composite, "--json")
+        part = json.loads(out)["tree"]["participations"][0]
+        self.assertEqual(part["join"], {"start": "derived", "finish": "derived"})
+
+
+class BindingTests(Base):
+    def uses(self, value):
+        self.edit(self.composite, "PAT-905 S1 payment capture", value)
+
+    def test_binding_is_parsed(self):
+        v = markdown.parse_uses("PAT-005 S1 (02=ABB-011, 04=ABB-024) then prose", self.cfg())
+        self.assertEqual(v, ("PAT-005 S1", "ref", "PAT-005", "S1", "",
+                             [("02", "ABB-011"), ("04", "ABB-024")]))
+
+    def test_other_parenthesised_text_is_prose(self):
+        self.assertEqual(markdown.parse_uses("PAT-005 S1 (see the note)", self.cfg())[1:],
+                         ("ref", "PAT-005", "S1", "", []))
+
+    def test_a_malformed_binding_is_invalid(self):
+        self.assertEqual(markdown.parse_uses("PAT-005 S1 (02=ABB-011, later)", self.cfg())[1],
+                         "invalid")
+        self.uses("PAT-905 S1 (01=ABB-901, later)")
+        fs = [f for f in self.findings() if f.rule == "uses_invalid"]
+        self.assertIn("comma-separated id=id pairs", fs[0].message)
+
+    def test_tbd_cannot_carry_a_binding(self):
+        self.assertEqual(markdown.parse_uses("TBD scoring (01=ABB-901)", self.cfg())[1], "invalid")
+        self.uses("TBD scoring (01=ABB-901)")
+        fs = [f for f in self.findings() if f.rule == "uses_invalid"]
+        self.assertEqual(fs[0].severity, "error")
+        self.assertIn("cannot carry a binding", fs[0].message)
+
+    def test_step_binding_is_read_serialised_and_written(self):
+        self.uses("PAT-905 S1 (01=ABB-901)")
+        c = self.cfg()
+        m = markdown.read(self.composite, c)
+        st = m.scenario("S1").steps[1]
+        self.assertEqual((st.uses, st.binding), ("PAT-905 S1", {"01": "ABB-901"}))
+        self.assertEqual(m.to_dict()["scenarios"][0]["steps"][1]["binding"], {"01": "ABB-901"})
+        self.assertNotIn("binding", m.to_dict()["scenarios"][0]["steps"][0])
+        out = os.path.join(self.dir, "round.md")
+        markdown.write(m, out, c)
+        self.assertEqual(markdown.read(out, c).scenario("S1").steps[1].binding, {"01": "ABB-901"})
+
+    def test_binding_makes_a_local_box_joinable(self):
+        # The participating flow leaves at its local 01, declared; bound to ABB-901 here.
+        self.edit(self.participant, HEAD, ports("ABB-901", "01 Card processor"))
+        self.assertIn(("participant_join", "warn"), self.composition_rules())
+        self.uses("PAT-905 S1 (01=ABB-901)")
+        self.assertEqual(self.composition_rules(), [])
+
+    def test_binding_boxes_must_exist(self):
+        self.uses("PAT-905 S1 (09=ABB-901, 01=ABB-999)")
+        msgs = [f.message for f in self.findings() if f.rule == "participant_binding"]
+        self.assertIn("the binding's 09 is not a box of PAT-905", msgs)
+        self.assertIn("the binding's ABB-999 is not a box of this pattern", msgs)
+        self.assertEqual({f.severity for f in self.findings() if f.rule == "participant_binding"},
+                         {"error"})
+
+    def test_a_box_once_per_side(self):
+        self.uses("PAT-905 S1 (01=ABB-901, 01=01)")
+        msgs = [f.message for f in self.findings() if f.rule == "participant_binding"]
+        self.assertIn("the binding names 01 more than once on the participating side", msgs)
+        self.edit(self.composite, "PAT-905 S1 (01=ABB-901, 01=01)", "PAT-905 S1 (01=ABB-901, ABB-901=ABB-901)")
+        msgs = [f.message for f in self.findings() if f.rule == "participant_binding"]
+        self.assertIn("the binding names ABB-901 more than once on the composite side", msgs)
+
+    def test_composition_json_carries_the_binding(self):
+        self.uses("PAT-905 S1 (01=ABB-901)")
+        code, out, _err = self.cli("composition", self.composite, "--json")
+        self.assertEqual(json.loads(out)["tree"]["participations"][0]["binding"], {"01": "ABB-901"})
+        code, out, _err = self.cli("composition", self.composite)
+        self.assertIn("(bound 01=ABB-901)", out)
+
+
+# ------------------------------------------------ participating patterns' regions
+
+class RegionTests(Base):
+    def emit(self):
+        c = self.cfg()
+        out = os.path.join(os.path.dirname(self.composite), "components.drawio")
+        drawio.write(markdown.read(self.composite, c), out, c)
+        return out, c
+
+    def regions_in(self, path):
+        root = ET.parse(path).getroot().find("diagram/mxGraphModel/root")
+        layers = [el.get("value") for el in root if el.tag == "mxCell" and el.get("parent") == "0"
+                  and el.get("id") != "0"]
+        found = {}
+        for o in root.iter("object"):
+            if o.get("participant"):
+                g = o.find("mxCell/mxGeometry")
+                found[o.get("participant")] = {
+                    "label": o.get("label"), "parent": o.find("mxCell").get("parent"),
+                    "style": o.find("mxCell").get("style"),
+                    "box": tuple(int(float(g.get(k))) for k in ("x", "y", "width", "height"))}
+        return layers, found
+
+    def test_emit_draws_one_region_per_participating_pattern(self):
+        out, _c = self.emit()
+        layers, found = self.regions_in(out)
+        self.assertEqual(layers[:2], ["Structure", drawio.REGIONS_LAYER])
+        r = found["PAT-905"]
+        self.assertEqual(r["label"], "PAT-905 Payment capture")
+        self.assertEqual(r["parent"], drawio.REGIONS_LAYER_ID)
+        self.assertIn("dashed=1", r["style"])
+        self.assertIn("fillColor=none", r["style"])
+        self.assertNotIn("container=1", r["style"])
+        # ABB-901 is laid out at (80, 208), 220 by 80: padding 24, and 22 more for the label.
+        self.assertEqual(r["box"], (56, 162, 268, 150))
+
+    def test_no_participations_no_layer(self):
+        c = self.cfg(self.participant)
+        out = os.path.join(self.dir, "plain.drawio")
+        drawio.write(markdown.read(self.participant, c), out, c)
+        layers, found = self.regions_in(out)
+        self.assertNotIn(drawio.REGIONS_LAYER, layers)
+        self.assertEqual(found, {})
+
+    def test_open_participating_pattern_has_its_own_region(self):
+        self.edit(self.composite, "| confirm | IF-01 |  |", "| confirm | IF-01 | TBD notify |")
+        out, _c = self.emit()
+        _layers, found = self.regions_in(out)
+        self.assertEqual(found["TBD notify"]["label"], "Open: notify")
+
+    def test_region_computation_and_overlap_offsets(self):
+        m = markdown.read(self.composite, self.cfg())
+        m.scenarios[0].steps[2].uses = "TBD notify"
+        boxes = {"01": (0, 0, 100, 50), "ABB-901": (300, 0, 100, 50)}
+        a, b = drawio.regions(m, boxes, {"PAT-905": "Payment capture"})
+        self.assertEqual(a, {"participant": "PAT-905", "label": "PAT-905 Payment capture",
+                             "x": 276, "y": -46, "w": 148, "h": 120})
+        # The second region's padding grows, so outlines round the same box stay apart.
+        self.assertEqual((b["participant"], b["x"], b["y"], b["w"], b["h"]),
+                         ("TBD notify", -38, -60, 476, 148))
+
+    def test_binding_widens_the_region(self):
+        self.edit(self.composite, "PAT-905 S1 payment capture", "PAT-905 S1 (01=01)")
+        m = markdown.read(self.composite, self.cfg())
+        boxes = {"01": (0, 0, 100, 50), "ABB-901": (300, 0, 100, 50)}
+        (a,) = drawio.regions(m, boxes)
+        self.assertEqual((a["x"], a["w"]), (-24, 448))
+
+    def test_sync_follows_moved_boxes(self):
+        out, c = self.emit()
+        tree = ET.parse(out)
+        for o in tree.getroot().iter("object"):
+            if o.get("abb_id") == "ABB-901":
+                g = o.find("mxCell/mxGeometry")
+                g.set("x", "600"); g.set("y", "400")
+        tree.write(out, encoding="utf-8")
+        sync.sync(markdown.read(self.composite, c), out, c)
+        _layers, found = self.regions_in(out)
+        self.assertEqual(found["PAT-905"]["box"], (576, 354, 268, 150))
+
+    def test_sync_resolves_boxes_inside_containers(self):
+        out, c = self.emit()
+        tree = ET.parse(out)
+        root = tree.getroot().find("diagram/mxGraphModel/root")
+        box = ET.SubElement(root, "mxCell", {"id": "zone", "value": "", "style": "container=1",
+                                             "vertex": "1", "parent": "1"})
+        ET.SubElement(box, "mxGeometry", {"x": "1000", "y": "1000", "width": "400",
+                                          "height": "300", "as": "geometry"})
+        for o in root.iter("object"):
+            if o.get("abb_id") == "ABB-901":
+                o.find("mxCell").set("parent", "zone")
+                g = o.find("mxCell/mxGeometry")
+                g.set("x", "10"); g.set("y", "20")
+        tree.write(out, encoding="utf-8")
+        sync.sync(markdown.read(self.composite, c), out, c)
+        _layers, found = self.regions_in(out)
+        self.assertEqual(found["PAT-905"]["box"][:2], (1010 - 24, 1020 - 24 - 22))
+
+    def test_sync_removes_a_region_nothing_runs(self):
+        out, c = self.emit()
+        self.edit(self.composite, "PAT-905 S1 payment capture", "")
+        changes = sync.sync(markdown.read(self.composite, c), out, c)
+        self.assertIn(("remove", "region", "PAT-905"), [(x.action, x.kind, x.id) for x in changes])
+        layers, found = self.regions_in(out)
+        self.assertEqual(found, {})
+        self.assertNotIn(drawio.REGIONS_LAYER, layers)
+
+    def test_style_region_overrides(self):
+        c = self.cfg()
+        out = os.path.join(os.path.dirname(self.composite), "components.drawio")
+        drawio.write(markdown.read(self.composite, c), out, c,
+                     style={"region": "dashed=1;fillColor=#F0F4FA;"})
+        self.assertEqual(self.regions_in(out)[1]["PAT-905"]["style"], "dashed=1;fillColor=#F0F4FA;")
+
+    def test_regions_are_neither_nodes_nor_scenarios(self):
+        out, c = self.emit()
+        d = drawio.read(out, c)
+        self.assertEqual(sorted(d.node_ids()), ["01", "ABB-901"])
+        self.assertEqual(d.attrs["regions"], [{"participant": "PAT-905",
+                                                "label": "PAT-905 Payment capture"}])
+        self.assertEqual([f for f in validate.check(markdown.read(self.composite, c), c, d)
+                          if f.severity == "error"], [])
+
+
+class RenderRegionTests(Base):
+    emit = RegionTests.emit
+
+    def test_structure_renders_with_regions_by_default(self):
+        from model import render
+        out, _c = self.emit()
+        self.assertEqual(render.with_regions(out, ["Structure"]),
+                         ["Structure", drawio.REGIONS_LAYER])
+        self.assertEqual(render.with_regions(out, ["Structure", "S1 Flow S1"]),
+                         ["Structure", drawio.REGIONS_LAYER, "S1 Flow S1"])
+        self.assertEqual(render.with_regions(out, ["Structure"], regions=False), ["Structure"])
+        self.assertEqual(render.with_regions(out, ["S1 Flow S1"]), ["S1 Flow S1"])
+        self.assertEqual(render.with_regions(out, []), [])
+
+    def test_cli_flag_and_record(self):
+        from model import render
+        out, _c = self.emit()
+        seen = []
+
+        def fake(path, target, **kw):
+            seen.append(kw["layers"])
+            with open(target, "wb") as fh:
+                fh.write(b"x")
+            rec = render.write_record(path, target, kw["layers"])
+            return {"path": target, "bytes": 1, "format": "svg", "record": rec}
+
+        real, render.export = render.export, fake
+        try:
+            img = os.path.join(self.dir, "v.svg")
+            self.cli("render", out, "--out", img, "--layer", "Structure")
+            self.cli("render", out, "--out", img, "--layer", "Structure", "--no-regions")
+        finally:
+            render.export = real
+        self.assertEqual(seen, [["Structure", drawio.REGIONS_LAYER], ["Structure"]])
+        with open(img + ".render.json", encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["layers"], ["Structure"])
+
+    def test_walkthrough_accepts_a_view_with_regions(self):
+        from model import render
+        out, c = self.emit()
+        self.edit(self.composite, "---\n\n#", "model:\n  diagram: components.drawio\n---\n\n#")
+        _, boxes, _, _ = animate.geometry(out)
+        x0, y0, x1, y1 = animate.bounds({**boxes, **animate.region_boxes(out)})
+        img = os.path.join(os.path.dirname(out), "components.png")
+        with open(img, "wb") as fh:
+            fh.write(png(int((x1 - x0) * 2), int((y1 - y0) * 2)))
+        render.write_record(out, img, ["Structure", drawio.REGIONS_LAYER])
+        self.assertEqual(animate.current_view(out, "Structure"), (img, None))
+        d = animate.build(self.composite, c, force=True, render_mode="never")
+        # Positions are measured from the regions' extent, which the view shows.
+        self.assertEqual(d["size"], [int((x1 - x0) * 2), int((y1 - y0) * 2)])
+
+
+class MarkerTests(AnimateTests):
+    def test_badge_draws_a_boxed_plus_not_a_glyph(self):
+        _r, _d, html = self.animate(self.composite)
+        self.assertIn("function marker(", html)
+        self.assertIn(".cam::before", html)
+        self.assertNotIn("\u229e", html)
+
+    def test_open_participating_pattern_is_greyed_without_a_link(self):
+        self.edit(self.composite, "PAT-905 S1 payment capture", "TBD fraud scoring")
+        c = self.cfg()
+        drawio.write(markdown.read(self.composite, c),
+                     os.path.join(os.path.dirname(self.composite), "components.drawio"), c)
+        _r, d, html = self.animate(self.composite)
+        self.assertNotIn("href", d["scenarios"][0]["steps"][1]["uses"])
+        self.assertIn('live?"sub":"sub-open"', html)
+        self.assertIn('col=live?"#fff":GREY', html)
+        self.assertIn(".cam.open{color:#8A93A3}", html)
 
 
 if __name__ == "__main__":

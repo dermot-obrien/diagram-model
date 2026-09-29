@@ -90,6 +90,20 @@ def geometry(path):
     return cells, on_base, base.id, drawio._strip_html(base.label) or "Structure"
 
 
+def region_boxes(path):
+    """{cell id: (x, y, w, h)} of the participating patterns' regions, which sit on
+    their own layer at absolute positions."""
+    pages = list(drawio.iter_pages(path))
+    if not pages:
+        return {}
+    out = {}
+    for cid, c in drawio._parse_page(pages[0][3]).items():
+        if c.kind == "vertex" and c.geom and c.attrs.get("participant"):
+            out[cid] = (_num(c.geom.get("x")), _num(c.geom.get("y")),
+                        _num(c.geom.get("width")), _num(c.geom.get("height")))
+    return out
+
+
 def bounds(boxes):
     xs0 = [b[0] for b in boxes.values()]
     ys0 = [b[1] for b in boxes.values()]
@@ -153,7 +167,7 @@ def current_view(diagram_path, base_name):
             continue
         fresh, _src, r = rec
         layers = r.get("layers") or []
-        if layers and layers != [base_name]:
+        if layers and layers not in ([base_name], [base_name, drawio.REGIONS_LAYER]):
             reasons.append(f"{name} shows layers {layers}, not only {base_name!r}")
             continue
         if not fresh:
@@ -260,14 +274,26 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
     else:
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "structure.png")
-            render.export(diagram_path, out, fmt="png", layers=[base_name], binary=drawio_bin)
+            render.export(diagram_path, out, fmt="png",
+                          layers=render.with_regions(diagram_path, [base_name]), binary=drawio_bin)
             with open(out, "rb") as fh:
                 view = fh.read()
     mime, W, H = image_info(view)
 
-    x0, y0, x1, y1 = bounds(boxes)
+    # The view shows the structure alone, or with the participating patterns' regions,
+    # which reach beyond the boxes; take the extent whose proportions match it.
+    frames = [bounds(boxes)]
+    areas = region_boxes(diagram_path)
+    if areas:
+        frames.append(bounds({**boxes, **areas}))
+
+    def off(f):
+        fw, fh = max(f[2] - f[0], 1), max(f[3] - f[1], 1)
+        return abs((W / H) - (fw / fh)) / (fw / fh)
+
+    x0, y0, x1, y1 = min(frames, key=off)
     bw, bh = max(x1 - x0, 1), max(y1 - y0, 1)
-    if abs((W / H) - (bw / bh)) / (bw / bh) > TOLERANCE:
+    if off((x0, y0, x1, y1)) > TOLERANCE:
         raise AnimateError(
             f"  ! the rendered view is {W}x{H} but the shapes span {bw:.0f}x{bh:.0f}, so "
             f"positions would not line up. Something outside the shapes widens the render, "
@@ -306,7 +332,7 @@ def _uses(value, doc_path, cfg, resolver):
     That page is where `animate` writes it, beside the participating pattern's document.
     The link is made relative in `write`, once the composite pattern's own page has a
     place."""
-    val, kind, pid, key, _name = markdown.parse_uses(value, cfg)
+    val, kind, pid, key = markdown.parse_uses(value, cfg)[:4]
     out = {"ref": val, "kind": kind}
     if kind == "ref":
         out["key"] = key
@@ -423,6 +449,11 @@ ol li button[aria-current="step"] .k,ol li.done .k{background:var(--accent);colo
 .drill a{color:var(--ink);font-weight:600;text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:4px 8px;display:inline-block;margin-top:6px}
 .chip{color:var(--muted);font-size:12px;margin-left:4px}
 .sub{cursor:pointer}
+/* BPMN's call-activity marker: a small boxed plus, drawn rather than a glyph so it always renders */
+.cam{display:inline-block;position:relative;width:11px;height:11px;border:1.5px solid currentColor;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.cam::before,.cam::after{content:"";position:absolute;left:50%;top:50%;background:currentColor;transform:translate(-50%,-50%)}
+.cam::before{width:7px;height:1.5px}.cam::after{width:1.5px;height:7px}
+.cam.open{color:#8A93A3}
 .draw{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .7s ease forwards}
 @keyframes draw{to{stroke-dashoffset:0}}
 .pulse{animation:pulse 1.2s ease-in-out infinite}
@@ -467,7 +498,7 @@ ol li button[aria-current="step"] .k,ol li.done .k{background:var(--accent);colo
   </aside>
 </main>
 <script>
-const D=__DATA__, W=D.size[0], H=D.size[1], K=W/2400, ACC="__ACCENT__", NS="http://www.w3.org/2000/svg";
+const D=__DATA__, W=D.size[0], H=D.size[1], K=W/2400, ACC="__ACCENT__", GREY="#8A93A3", NS="http://www.w3.org/2000/svg";
 const $=id=>document.getElementById(id);
 let si=0, i=-1, timer=null, follow=true, Z={z:1,tx:0,ty:0};
 function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e;}
@@ -489,13 +520,18 @@ function drillTarget(s){const u=s&&s.uses;if(!u||!u.href)return null;const S=D.s
   const back=u.back+(BACK?"?back="+encodeURIComponent(BACK):"")+"#"+encodeURIComponent(S.key+"-"+s.n);
   return u.href+"?back="+encodeURIComponent(back)+"#"+encodeURIComponent(u.key);}
 function drill(s){const t=drillTarget(s);if(t){stop();location.assign(t);}}
-function subBadge(s,x0,y0,g){const u=s.uses,t=(u.href?"⤴ ":"")+u.ref,w=(t.length*8.6+22)*K,h=28*K;
-  const G=el("g",{class:u.href?"sub":""},g);el("rect",{x:x0-w/2,y:y0-h/2,width:w,height:h,rx:14*K,fill:u.href?ACC:"#fff",stroke:ACC,"stroke-width":2*K,"stroke-dasharray":u.href?"none":`${5*K} ${4*K}`},G);
-  const t2=el("text",{x:x0,y:y0+5*K,"text-anchor":"middle","font-size":14*K,"font-weight":700,fill:u.href?"#fff":ACC,"font-family":"system-ui,sans-serif"},G);t2.textContent=t;
-  if(u.href){const tt=el("title",{},G);tt.textContent="Open "+u.ref;G.addEventListener("click",()=>drill(s));}}
+function marker(x,y,sz,col,g){el("rect",{x:x,y:y,width:sz,height:sz,rx:2*K,fill:"none",stroke:col,"stroke-width":1.8*K,class:"cam"},g);
+  el("line",{x1:x+sz*.25,y1:y+sz/2,x2:x+sz*.75,y2:y+sz/2,stroke:col,"stroke-width":1.8*K},g);el("line",{x1:x+sz/2,y1:y+sz*.25,x2:x+sz/2,y2:y+sz*.75,stroke:col,"stroke-width":1.8*K},g);}
+function subBadge(s,x0,y0,g){const u=s.uses,live=!!u.href,col=live?"#fff":GREY,t=u.ref,sz=13*K,w=(t.length*8.6+22)*K+sz+6*K,h=28*K;
+  const G=el("g",{class:live?"sub":"sub-open"},g);el("rect",{x:x0-w/2,y:y0-h/2,width:w,height:h,rx:14*K,fill:live?ACC:"#fff",stroke:live?ACC:GREY,"stroke-width":2*K,"stroke-dasharray":live?"none":`${5*K} ${4*K}`},G);
+  marker(x0-w/2+11*K,y0-sz/2,sz,col,G);
+  const t2=el("text",{x:x0+(sz+6*K)/2,y:y0+5*K,"text-anchor":"middle","font-size":14*K,"font-weight":700,fill:col,"font-family":"system-ui,sans-serif"},G);t2.textContent=t;
+  const tt=el("title",{},G);tt.textContent=live?"Open the participating pattern "+u.ref:(u.kind==="tbd"?"Open participating pattern, not written yet: ":"No walkthrough to open: ")+u.ref;
+  if(live)G.addEventListener("click",()=>drill(s));}
+function cam(open){const c=document.createElement("span");c.className=open?"cam open":"cam";c.setAttribute("aria-hidden","true");return c;}
 function drillPanel(s){const dp=$("drill");dp.innerHTML="";dp.hidden=!(s&&s.uses);if(dp.hidden)return;const u=s.uses,p=document.createElement("div");
-  p.textContent=u.href?`Step ${s.n} runs the participating pattern ${u.ref}.`:u.kind==="tbd"?`Step ${s.n} runs an open participating pattern, ${u.ref}, not written yet.`:`Step ${s.n} runs ${u.ref}, which has no walkthrough to open.`;dp.appendChild(p);
-  if(u.href){const a=document.createElement("a");a.setAttribute("href",drillTarget(s));a.textContent="Open "+u.ref+" ⤴";dp.appendChild(a);}}
+  p.appendChild(cam(!u.href));p.appendChild(document.createTextNode(u.href?`Step ${s.n} runs the participating pattern ${u.ref}.`:u.kind==="tbd"?`Step ${s.n} runs an open participating pattern, ${u.ref}, not written yet.`:`Step ${s.n} runs ${u.ref}, which has no walkthrough to open.`));dp.appendChild(p);
+  if(u.href){const a=document.createElement("a");a.setAttribute("href",drillTarget(s));a.textContent="Open "+u.ref+" \u2934";dp.appendChild(a);}}
 function ring(id,g,strong){const b=B(id);if(b)el("rect",{x:b.x-6*K,y:b.y-6*K,width:b.w+12*K,height:b.h+12*K,rx:10*K,fill:"none",stroke:ACC,"stroke-width":(strong?5:3)*K,class:strong?"pulse":""},g);}
 function hole(id){const b=B(id);if(b)el("rect",{x:b.x-8*K,y:b.y-8*K,width:b.w+16*K,height:b.h+16*K,rx:10*K,fill:"#000"},$("holes"));}
 function badge(id,n,g,k){const b=B(id);if(!b)return;const x=b.x+14*K+k*30*K,y=b.y+2*K;el("circle",{cx:x,cy:y,r:15*K,fill:ACC,stroke:"#fff","stroke-width":3*K},g);const t=el("text",{x,y:y+5.5*K,"text-anchor":"middle","font-size":16*K,"font-weight":700,fill:"#fff","font-family":"system-ui,sans-serif"},g);t.textContent=n;}
@@ -529,7 +565,7 @@ function stop(){clearInterval(timer);timer=null;$("play").innerHTML="&#9654; Pla
 function play(){if(timer){stop();return;}const L=D.scenarios[si].steps.length;if(i>=L-1)go(-1);$("play").innerHTML="&#10074;&#10074; Pause";$("play").setAttribute("aria-label","Pause");go(i+1);timer=setInterval(()=>{if(i>=D.scenarios[si].steps.length-1){stop();return;}go(i+1);},__INTERVAL__);}
 function pick(n){stop();si=n;i=-1;document.querySelectorAll("#tabs button").forEach((b,j)=>b.setAttribute("aria-pressed",j===n));
   const S=D.scenarios[n];$("sname").textContent=S.key+" "+S.name;const ol=$("steps");ol.innerHTML="";
-  S.steps.forEach((s,j)=>{const li=document.createElement("li"),b=document.createElement("button");b.innerHTML='<span class="k"></span><span></span>';b.firstChild.textContent=s.n;b.lastChild.textContent=s.action;if(s.uses){const c=document.createElement("span");c.className="chip";c.textContent=s.uses.ref;b.lastChild.appendChild(c);}b.onclick=()=>{stop();go(j);};li.appendChild(b);ol.appendChild(li);});
+  S.steps.forEach((s,j)=>{const li=document.createElement("li"),b=document.createElement("button");b.innerHTML='<span class="k"></span><span></span>';b.firstChild.textContent=s.n;b.lastChild.textContent=s.action;if(s.uses){const c=document.createElement("span");c.className="chip";c.appendChild(cam(!s.uses.href));c.appendChild(document.createTextNode(s.uses.ref));b.lastChild.appendChild(c);}b.onclick=()=>{stop();go(j);};li.appendChild(b);ol.appendChild(li);});
   render();try{localStorage.setItem(__STORE__,S.key);}catch(e){}}
 D.scenarios.forEach((S,n)=>{const b=document.createElement("button");b.textContent=S.key+" "+S.name;b.onclick=()=>pick(n);$("tabs").appendChild(b);});
 $("follow").onclick=()=>{follow=!follow;$("follow").setAttribute("aria-pressed",follow);$("follow").textContent="Zoom to step: "+(follow?"on":"off");render();};

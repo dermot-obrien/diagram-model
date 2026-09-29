@@ -213,7 +213,32 @@ def structural(m: Model, cfg) -> list:
         if uniq and uniq != list(range(1, len(uniq) + 1)):
             _add(out, cfg, "step_not_contiguous",
                  f"step numbers are {uniq}; they must run contiguously from 1", sc.key)
+        out += start_finish(m, sc, cfg)
 
+    return out
+
+
+def start_finish(m: Model, sc, cfg) -> list:
+    """A declared Start is the first step's actor, a declared Finish the last step's actor
+    or target, and both are boxes of this model: a scenario's ports, or its start and end
+    events, which a composite pattern that runs it joins to."""
+    out = []
+    if not (sc.start or sc.finish) or not sc.steps:
+        return out
+    ids = m.node_ids()
+    first, last = sc.steps[0], sc.steps[-1]
+    for role, box, allowed, says in (
+            ("Start", sc.start, [first.actor], f"the first step's actor, {first.actor or '(none)'}"),
+            ("Finish", sc.finish, [last.actor, last.target],
+             f"the last step's actor or target, {' or '.join(x for x in (last.actor, last.target) if x) or '(none)'}")):
+        if not box:
+            continue
+        if ids and box not in ids:
+            _add(out, cfg, "scenario_start_finish",
+                 f"{role} {box} is not a box of this pattern", sc.key)
+        elif box not in [a for a in allowed if a]:
+            _add(out, cfg, "scenario_start_finish",
+                 f"{role} {box} is not {says}", sc.key)
     return out
 
 
@@ -351,6 +376,17 @@ def agreement(doc: Model, diagram: Model, cfg) -> list:
                 _add(out, cfg, "step_uses_mismatch",
                      f"step {st.step} uses '{st.uses or '(none)'}' in the document but "
                      f"'{g.uses or '(none)'}' on the diagram; run model sync", sc.key)
+
+    # The participating patterns' regions: one per participating pattern, no more.
+    from .drawio import participants, REGIONS_LAYER
+    want = {p[0] for p in participants(doc, cfg)}
+    drawn = {r["participant"] for r in diagram.attrs.get("regions", [])}
+    for p in sorted(want - drawn):
+        _add(out, cfg, "step_uses_mismatch",
+             f"{p} has no region on the {REGIONS_LAYER} layer; run model sync", p)
+    for p in sorted(drawn - want):
+        _add(out, cfg, "step_uses_mismatch",
+             f"the region for {p} is on the diagram but no step runs it; run model sync", p)
     return out
 
 

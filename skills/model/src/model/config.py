@@ -72,6 +72,9 @@ DEFAULT_RULES = {
     "participant_join": "warn",             # the entry or exit box cannot be matched
     "participant_open": "warn",             # an open participating pattern, `TBD`
     "participant_unapproved": "error",      # an approved pattern over an unapproved one
+    "participant_binding": "error",         # a role binding naming a box that is not there,
+                                            # or one box twice on a side
+    "scenario_start_finish": "error", # a declared Start or Finish the steps do not bear out
     "step_uses_mismatch": "warn",     # the document's Uses differs from the diagram's
 }
 

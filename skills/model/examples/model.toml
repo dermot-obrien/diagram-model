@@ -34,5 +34,8 @@ columns = { step = "Step", actor = "Actor", action = "Action", edge = "Interface
 # column = "id"
 # level  = "physical"
 
+# [style]
+# region = "rounded=1;dashed=1;fillColor=none;strokeColor=#5B6474;"   # participating patterns' regions
+
 [rules]
 node_id_mismatch = "warn"

@@ -240,9 +240,11 @@ def _node(path, r, stack, depth, model=None) -> dict:
     d = r.load(path, model)
     node = _brief(d, r)
     here = stack + [_key(path)]
-    for sc, st, (val, kind, pid, skey, name) in participations(d.model, d.cfg):
+    for sc, st, (val, kind, pid, skey, name, _pairs) in participations(d.model, d.cfg):
         part = {"scenario": sc.key, "step": st.step, "uses": val, "kind": kind,
                 "actor": st.actor, "target": st.target}
+        if st.binding:
+            part["binding"] = dict(st.binding)
         if kind == "tbd":
             part["name"] = name
         elif kind == "ref":
@@ -256,7 +258,15 @@ def _node(path, r, stack, depth, model=None) -> dict:
                 if len(paths) > 1:
                     part["candidates"] = paths
                 pd = r.load(found)
-                part["scenarioFound"] = pd.model.scenario(skey) is not None
+                psc = pd.model.scenario(skey)
+                part["scenarioFound"] = psc is not None
+                if psc is not None:
+                    # Where the participating flow enters and leaves, as it declares them
+                    # (its Start and Finish) or as its first and last steps imply.
+                    part["join"] = {
+                        "start": "declared" if psc.start else "derived",
+                        "finish": "declared" if psc.finish else "derived",
+                    }
                 if _key(found) in here:
                     part["cycle"] = True
                     part["participant"] = _brief(pd, r)
@@ -334,6 +344,11 @@ def render(t: dict) -> list:
                     note += "  (cycle)"
                 if p.get("truncated"):
                     note += "  (too deep; not expanded)"
+                declared = [k for k, v in (p.get("join") or {}).items() if v == "declared"]
+                if declared:
+                    note += f"  (joined at its declared {' and '.join(declared)})"
+                if p.get("binding"):
+                    note += "  (bound " + ", ".join(f"{a}={b}" for a, b in p["binding"].items()) + ")"
                 lines.append(f"{pad}{at} runs {p['key']} of {head(sub)}{note}")
                 if not p.get("cycle") and not p.get("truncated"):
                     rec(sub, pad + "    ")
@@ -366,25 +381,61 @@ def _named(model, ident) -> str:
     return f"{ident} {n.label}".strip() if n and n.label else ident
 
 
-def _join(out, cfg, where, composite: Doc, box, participant: Doc, pboxes, pid, skey, side):
+def corresponds(composite: Doc, box, participant: Doc, pbox, binding=None) -> bool:
+    """Whether a participating pattern's box is the composite pattern's box: through the
+    step's role binding first, then by catalogue id, directly or through either
+    document's Catalogue Mapping. A binding is what makes local ids joinable."""
+    if not box or not pbox:
+        return False
+    if binding and binding.get(pbox) == box:
+        return True
+    return bool(_canon(composite.model, composite.cfg, box)
+                & _canon(participant.model, participant.cfg, pbox))
+
+
+def _join(out, cfg, where, composite: Doc, box, participant: Doc, pboxes, pid, skey, side,
+          binding=None, declared=False):
     """Warn when none of the participating pattern's candidate boxes corresponds to the
     composite pattern's box.
 
-    Entry has one candidate, the first step's actor. Exit has two, the last step's actor
-    and its target, because a flow often ends with the exit box making a final call to a
-    helper: `Facade -> Policy engine: authorise` leaves at the facade."""
+    A declared Start or Finish is the one candidate. Otherwise entry has one candidate,
+    the first step's actor, and exit has two, the last step's actor and its target,
+    because a flow often ends with the exit box making a final call to a helper:
+    `Facade -> Policy engine: authorise` leaves at the facade."""
     pboxes = [c for i, c in enumerate(pboxes) if c and c not in pboxes[:i]]
     if not box or not pboxes:
         return
-    mine = _canon(composite.model, composite.cfg, box)
-    if any(mine & _canon(participant.model, participant.cfg, c) for c in pboxes):
+    if any(corresponds(composite, box, participant, c, binding) for c in pboxes):
         return
     verb = "enters" if side == "entry" else "leaves"
     there = " or ".join(_named(participant.model, c) for c in pboxes)
+    how = f"its declared {'Start' if side == 'entry' else 'Finish'}, " if declared else ""
     _add(out, cfg, "participant_join",
-         f"{pid} {skey} {verb} at {there} there, which cannot be matched to "
-         f"{_named(composite.model, box)} here. Map the local box in Catalogue Mapping to the "
-         f"catalogue id it realises, or use the same catalogue id in both patterns", where)
+         f"{pid} {skey} {verb} at {how}{there} there, which cannot be matched to "
+         f"{_named(composite.model, box)} here. Bind them in the Uses cell, "
+         f"{pid} {skey} ({pboxes[0]}={box}), or map the local box in Catalogue Mapping to "
+         f"the catalogue id it realises, or use the same catalogue id in both patterns", where)
+
+
+def _binding(out, cfg, where, st, composite: Doc, participant: Doc, pid):
+    """A role binding names boxes that exist, each at most once on each side."""
+    b = st.binding or {}
+    for side, ids in (st.attrs.get("binding_repeats") or {}).items():
+        _add(out, cfg, "participant_binding",
+             f"the binding names {', '.join(ids)} more than once on the "
+             f"{'participating' if side == 'participant' else 'composite'} side", where)
+    rights = list(b.values())
+    for twice in sorted({x for x in rights if rights.count(x) > 1}):
+        _add(out, cfg, "participant_binding",
+             f"the binding names {twice} more than once on the composite side", where)
+    pids, mine = participant.model.node_ids(), composite.model.node_ids()
+    for a, c in b.items():
+        if a not in pids:
+            _add(out, cfg, "participant_binding",
+                 f"the binding's {a} is not a box of {pid}", where)
+        if c not in mine:
+            _add(out, cfg, "participant_binding",
+                 f"the binding's {c} is not a box of this pattern", where)
 
 
 def findings(m, cfg, resolver=None) -> list:
@@ -402,9 +453,16 @@ def findings(m, cfg, resolver=None) -> list:
     for part in t["participations"]:
         where = f"{part['scenario']} step {part['step']}"
         if part["kind"] == "invalid":
-            _add(out, cfg, "uses_invalid",
-                 f"Uses '{part['uses']}' is neither a pattern id and scenario key, such as "
-                 f"PAT-905 S1, nor TBD and a name", where)
+            if markdown.TBD_RE.match(part["uses"]):
+                why = ("an open participating pattern, TBD, cannot carry a binding: it has "
+                       "no boxes to bind yet")
+            elif "(" in part["uses"] and "=" in part["uses"]:
+                why = ("the binding after the scenario key must be comma-separated id=id "
+                       "pairs, such as (02=ABB-011, 04=ABB-024)")
+            else:
+                why = ("it is neither a pattern id and scenario key, such as PAT-905 S1, nor "
+                       "TBD and a name")
+            _add(out, cfg, "uses_invalid", f"Uses '{part['uses']}': {why}", where)
             continue
         if not part["actor"] or not part["target"]:
             _add(out, cfg, "uses_step_endpoints",
@@ -436,12 +494,17 @@ def findings(m, cfg, resolver=None) -> list:
             _add(out, cfg, "participant_scenario_missing",
                  f"{pid} has no scenario {skey}; it has {have}", where)
             continue
+        st = next(s for s in composite.model.scenario(part["scenario"]).steps
+                  if s.step == part["step"])
+        _binding(out, cfg, where, st, composite, participant, pid)
         if psc.steps:
             first, last = psc.steps[0], psc.steps[-1]
-            _join(out, cfg, where, composite, part["actor"], participant, [first.actor],
-                  pid, skey, "entry")
+            _join(out, cfg, where, composite, part["actor"], participant,
+                  [psc.start] if psc.start else [first.actor], pid, skey, "entry",
+                  st.binding, bool(psc.start))
             _join(out, cfg, where, composite, part["target"], participant,
-                  [last.actor, last.target], pid, skey, "exit")
+                  [psc.finish] if psc.finish else [last.actor, last.target], pid, skey,
+                  "exit", st.binding, bool(psc.finish))
 
     # Cycles anywhere below: the composition does not terminate.
     seen = set()
