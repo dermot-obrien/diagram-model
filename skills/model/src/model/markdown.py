@@ -270,7 +270,8 @@ def _read_scenarios(secs, cfg) -> list:
         mm = rx.match(title.strip())
         if not mm:
             continue
-        sc = Scenario(key=mm.group(1), name=(mm.group(2) or "").strip())
+        sc = Scenario(key=mm.group(1), name=(mm.group(2) or "").strip(),
+                      **_start_finish(body))
         for rows in tables(body):
             for row in rows:
                 try:
@@ -279,16 +280,102 @@ def _read_scenarios(secs, cfg) -> list:
                     n = 0
                 if not n:
                     continue
-                sc.steps.append(Step(
+                parsed = (parse_uses(_get(row, spec.columns.get("uses", "")), cfg)
+                          if spec.columns.get("uses") else ("", "", "", "", "", []))
+                st = Step(
                     step=n,
                     actor=_first_token(_get(row, spec.columns["actor"])),
                     action=_get(row, spec.columns["action"]),
                     edge=_first_token(_get(row, spec.columns.get("edge", ""))),
                     target=_first_token(_get(row, spec.columns.get("target", ""))),
-                ))
+                    uses=parsed[0],
+                    binding=dict(parsed[5]),
+                )
+                # A box bound twice on one side cannot be held in the mapping; keep the
+                # evidence so validation can name it.
+                for side, ids in (("participant", [a for a, _ in parsed[5]]),
+                                  ("composite", [b for _, b in parsed[5]])):
+                    twice = sorted({i for i in ids if ids.count(i) > 1})
+                    if twice:
+                        st.attrs.setdefault("binding_repeats", {})[side] = twice
+                sc.steps.append(st)
         sc.steps.sort(key=lambda s: s.step)
         if sc.steps:
             out.append(sc)
+    return out
+
+
+TBD_RE = re.compile(r"^TBD\b[\s:.-]*(.*)$", re.I)
+# A box id inside a binding: a catalogue id such as ABB-011 or SBB-011.1, or a local one.
+BIND_ID = r"[A-Za-z0-9][A-Za-z0-9._-]*"
+BIND_GROUP_RE = re.compile(r"^\s*\(([^()]*=[^()]*)\)")
+BIND_PAIR_RE = re.compile(r"^\s*(" + BIND_ID + r")\s*=\s*(" + BIND_ID + r")\s*$")
+
+
+def _binding(group: str):
+    """`02=ABB-011, 04=ABB-024` as [(participant box, composite box)], or None if any
+    part is not an `id=id` pair."""
+    pairs = []
+    for part in group.split(","):
+        m = BIND_PAIR_RE.match(part)
+        if not m:
+            return None
+        pairs.append((m.group(1), m.group(2)))
+    return pairs
+
+
+def parse_uses(text: str, cfg) -> tuple:
+    """A Uses cell as (normalised value, kind, pattern id, scenario key, name, binding).
+
+    `PAT-905 S1 payment capture` is ("PAT-905 S1", "ref", "PAT-905", "S1", "", []):
+    trailing text is prose and dropped. A parenthesised group of `id=id` pairs directly
+    after the key is the role binding, participating box to composite box:
+    `PAT-005 S1 (02=ABB-011, 04=ABB-024)` gives [("02", "ABB-011"), ("04", "ABB-024")].
+    `TBD fraud scoring` is ("TBD fraud scoring", "tbd", "", "", "fraud scoring", []). An
+    empty cell is ("", "", ...). Anything else keeps its text and is "invalid", so
+    validation can name it rather than the row being read as no participation: that
+    includes a group after the key that holds `=` but is not all `id=id` pairs, and a
+    TBD carrying a binding, since an open participating pattern has no boxes to bind.
+    """
+    t = re.sub(r"\s+", " ", (text or "").strip().strip("`").strip())
+    if not t or t in ("-", "\u2013", "\u2014"):
+        return "", "", "", "", "", []
+    m = TBD_RE.match(t)
+    if m:
+        name = m.group(1).strip()
+        if re.search(r"\([^()]*=[^()]*\)", name):
+            return t, "invalid", "", "", "", []
+        return (f"TBD {name}".strip(), "tbd", "", "", name, [])
+    pid = getattr(cfg, "pattern_id", "") or r"[A-Z]{2,5}-[0-9]{3}"
+    m = re.match(r"^(" + pid + r")(?![A-Za-z0-9])[\s:,-]*([A-Za-z0-9_]+)?", t)
+    if m and m.group(2):
+        pairs = []
+        g = BIND_GROUP_RE.match(t[m.end():])
+        if g:
+            pairs = _binding(g.group(1))
+            if pairs is None:
+                return t, "invalid", "", "", "", []
+        return f"{m.group(1)} {m.group(2)}", "ref", m.group(1), m.group(2), "", pairs
+    return t, "invalid", "", "", "", []
+
+
+START_FINISH_RE = re.compile(r"^\s*(?:[*_]{0,2})(Start|Finish)(?:[*_]{0,2})\s*:\s*(?:[*_]{0,2})\s*(\S.*)$",
+                             re.I)
+
+
+def _start_finish(body: str) -> dict:
+    """`Start: <box>` and `Finish: <box>` lines under a scenario heading, before its steps
+    table, as {"start": id, "finish": id}. The box is its id, optionally followed by its
+    name, as a step's Actor is written."""
+    out = {}
+    for ln in body.split("\n"):
+        if ROW_RE.match(ln):
+            break
+        m = START_FINISH_RE.match(ln)
+        if m:
+            key = m.group(1).lower()
+            val = LINK_RE.sub(r"\1", m.group(2)).strip().strip("`*_ ")
+            out.setdefault(key, _first_token(val).strip("`*_"))
     return out
 
 
@@ -327,11 +414,24 @@ def write(m: Model, path, cfg) -> None:
     if m.scenarios:
         sc_cols = [cfg.scenarios.columns["step"], cfg.scenarios.columns["actor"],
                    cfg.scenarios.columns["action"], cfg.scenarios.columns.get("edge", "Edge")]
+        composed = any(st.uses for sc in m.scenarios for st in sc.steps)
+        if composed:
+            sc_cols += [cfg.scenarios.columns.get("target") or "Target",
+                        cfg.scenarios.columns.get("uses") or "Uses"]
         parts += [f"## {cfg.scenarios.section}", ""]
         for sc in m.scenarios:
-            parts += [f"### {sc.key} {sc.name}".rstrip(), "", _row(sc_cols), _sep(sc_cols)]
+            parts += [f"### {sc.key} {sc.name}".rstrip(), ""]
+            parts += [f"{k.capitalize()}: {v}" for k, v in (("start", sc.start),
+                                                             ("finish", sc.finish)) if v]
+            if sc.start or sc.finish:
+                parts.append("")
+            parts += [_row(sc_cols), _sep(sc_cols)]
             for st in sc.steps:
-                parts.append(_row([str(st.step), st.actor, st.action, st.edge]))
+                vals = [str(st.step), st.actor, st.action, st.edge]
+                if composed:
+                    bound = ", ".join(f"{a}={b}" for a, b in (st.binding or {}).items())
+                    vals += [st.target, f"{st.uses} ({bound})" if bound else st.uses]
+                parts.append(_row(vals))
             parts.append("")
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(parts).rstrip() + "\n")

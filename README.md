@@ -62,6 +62,7 @@ python bin/model.py extract  doc.md --format json
 python bin/model.py emit     doc.md --to drawio --out components.drawio
 python bin/model.py validate doc.md --against components.drawio
 python bin/model.py sync     doc.md components.drawio
+python bin/model.py composition doc.md
 python bin/model.py layers   components.drawio
 python bin/model.py render   components.drawio --out s1.svg --layer Structure --layer "S1 Happy path"
 ```
@@ -80,10 +81,12 @@ Model
 ├── nodes      id, label, group, kind, attrs
 ├── edges      id, source, target, label, kind, attrs
 ├── groups     id, label
-└── scenarios  key, name, steps[ step, actor, target, action, edge ]
+└── scenarios  key, name, start, finish, steps[ step, actor, target, action, edge, uses, binding ]
 ```
 
 A scenario is a numbered walkthrough overlaid on the structure. That is a UML communication diagram, which C4 calls a dynamic diagram. It cannot express branching, loops or concurrency, so a flow with real alternatives belongs in a sequence diagram instead.
+
+A step's `uses` runs a scenario of another pattern, `PAT-905 S1`, or marks an open participating pattern, `TBD <name>`, and its `binding` maps the participating pattern's boxes to this one's, `PAT-905 S1 (01=ABB-901)`. A scenario may declare its `start` and `finish` boxes. The pattern holding such steps is a composite pattern: each participation step stands for the participating pattern's whole flow, entering at its actor and leaving at its target, and each participating pattern is drawn as a dashed region on the `Participating patterns` layer. The constructs are UML 2.5.1's collaboration use and ports and BPMN 2.0.2's call activity and start and end events. `validate` resolves the composition and `composition <doc>` prints it; `SKILL.md` has the rules.
 
 ## Configuration
 
@@ -110,11 +113,16 @@ columns = { id = "Interface", source = "Provider", target = "Consumer", label = 
 
 [markdown.scenarios]
 section = "Scenarios"
-columns = { step = "Step", actor = "Actor", action = "Action", edge = "Interface", target = "Target" }
+columns = { step = "Step", actor = "Actor", action = "Action", edge = "Interface", target = "Target", uses = "Uses" }
 
 [[catalogues]]
 path   = "catalogue/components.csv"
 column = "id"
+
+[[links]]                        # optional: a declared id links to its page
+match  = 'SVC-[0-9]{2}'
+locate = "services/*/{id}-*"
+href   = "https://example.org/services/{located}/"
 
 [rules]
 node_id_mismatch = "warn"
@@ -150,6 +158,8 @@ Every rule has a severity of `error`, `warn` or `off`. A rule that is right for 
 | `catalogue_unreadable` | A declared catalogue that is missing, has the wrong column, or is empty |
 | `not_in_catalogue` | An identifier the project does not recognise |
 | `doc_not_in_diagram`, `diagram_not_in_doc` | A row nobody drew, or a shape nobody wrote down |
+| `link_unresolved` | A `[[links]]` rule matches a box's id but its `locate` glob finds nothing, so the box is not linked |
+| `uses_*`, `participant_*`, `composition_cycle`, `scenario_start_finish`, `step_uses_mismatch` | A participation step whose participating pattern does not resolve, runs the composite pattern again, binds boxes that are not there, joins at the wrong box, is still `TBD`, or leaves an approved composite pattern resting on an unapproved one; a declared Start or Finish the steps do not bear out |
 
 The last five are the ones that earn their keep. Anyone can see an unlabelled box. Nobody can see, by looking, that an arrow now points somewhere else.
 

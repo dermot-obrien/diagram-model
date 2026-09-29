@@ -18,6 +18,7 @@ reader sees each node once per page. Layers keep one set of shapes and one id sp
 from __future__ import annotations
 
 import base64
+import os
 import re
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -38,6 +39,117 @@ NODE_W, NODE_H = 220, 80
 COL_GAP, ROW_GAP = 120, 48
 MARGIN = 80
 BADGE = 30
+# A participation step: one arrow standing for a whole participating pattern's flow,
+# so it is drawn heavier and dash-dotted, and labelled with BPMN's call-activity marker
+# and what it runs, `[+] 3: PAT-905 S1`. The marker is plain ASCII because a boxed-plus
+# glyph falls back to an empty box in draw.io's export fonts.
+FLOW_USES_STYLE = ("edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;"
+                   "dashPattern=12 4 2 4;strokeWidth=3;strokeColor=#C25B54;"
+                   "fontColor=#C25B54;fontSize=12;fontStyle=1;labelBackgroundColor=#FFFFFF;")
+CALL_MARKER = "[+]"
+
+
+def uses_label(step, uses) -> str:
+    return f"{CALL_MARKER} {step}: {uses}"
+
+
+# The participating patterns of a composite pattern, each drawn as a dashed region around
+# the boxes it binds to: UML's collaboration use. One layer, recomputed by sync from the
+# boxes' positions; the regions are not containers and may overlap.
+REGIONS_LAYER = "Participating patterns"
+REGIONS_LAYER_ID = "lyr-participants"
+REGION_PAD, REGION_STEP, REGION_LABEL = 24, 14, 22
+REGION_STYLE = ("rounded=1;arcSize=4;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 6;"
+                "fillColor=none;strokeColor=#5B6474;strokeWidth=2;fontColor=#5B6474;"
+                "fontSize=12;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;"
+                "spacingTop=2;pointerEvents=0;")
+
+
+def participants(m, cfg=None) -> list:
+    """(participant, kind, pattern id, composite boxes) per distinct participating
+    pattern of a model, in order of first appearance: the pattern id, or `TBD <name>`
+    for an open one. The boxes are the Actor and Target of every step that runs it and
+    the composite side of every binding."""
+    from .markdown import parse_uses
+    out = {}
+    for sc in m.scenarios:
+        for st in sc.steps:
+            if not st.uses:
+                continue
+            val, kind, pid = parse_uses(st.uses, cfg)[:3]
+            if kind == "ref":
+                key = pid
+            elif kind == "tbd":
+                key = val
+            else:
+                continue
+            entry = out.setdefault(key, [key, kind, pid, []])
+            for b in [st.actor, st.target] + list((st.binding or {}).values()):
+                if b and b not in entry[3]:
+                    entry[3].append(b)
+    return [tuple(v) for v in out.values()]
+
+
+def participant_names(m, cfg=None) -> dict:
+    """Pattern id -> its title, for every participating pattern that resolves."""
+    names = {}
+    src = m.source or ""
+    if not src.lower().endswith((".md", ".markdown", ".mdx")):
+        return names
+    try:
+        from . import config as config_mod
+        from .composition import Resolver
+        r = Resolver(cfg if cfg is not None and cfg.path else config_mod.load(None, near=src))
+        for key, kind, pid, _boxes in participants(m, cfg):
+            if kind == "ref":
+                paths, _where = r.find(pid, src)
+                if paths:
+                    names[pid] = r.load(paths[0]).title
+    except (OSError, SystemExit, ValueError):
+        pass
+    return names
+
+
+def regions(m, boxes, names=None, cfg=None) -> list:
+    """The region of each participating pattern: {participant, label, x, y, w, h}.
+
+    `boxes` maps a node id to its absolute (x, y, w, h). Each region encloses the
+    composite boxes bound to its participating pattern with padding that grows with the
+    region's index, so two regions round the same boxes stay distinguishable, and a
+    little more at the top for the label.
+    """
+    names = names or {}
+    out = []
+    for i, (key, kind, pid, ids) in enumerate(participants(m, cfg)):
+        got = [boxes[b] for b in ids if b in boxes]
+        if not got:
+            continue
+        pad = REGION_PAD + i * REGION_STEP
+        x0 = min(b[0] for b in got) - pad
+        y0 = min(b[1] for b in got) - pad - REGION_LABEL
+        x1 = max(b[0] + b[2] for b in got) + pad
+        y1 = max(b[1] + b[3] for b in got) + pad
+        if kind == "tbd":
+            label = "Open: " + key[4:].strip() if len(key) > 4 else "Open participating pattern"
+        else:
+            label = f"{pid} {names.get(pid, '')}".strip()
+        out.append({"participant": key, "label": label, "x": round(x0), "y": round(y0),
+                    "w": round(x1 - x0), "h": round(y1 - y0)})
+    return out
+
+
+def link_attrs(cfg, ident, page_dir) -> dict:
+    """draw.io's own `link` and `linkTarget` for a box a [[links]] rule resolves, so the
+    box is clickable in draw.io and in its exports; {} when no rule resolves it."""
+    from . import links
+    link = links.resolve(cfg, ident, page_dir)
+    if link is None or not link.href:
+        return {}
+    return {"link": link.href, "linkTarget": "_self" if link.target == "same" else "_blank"}
+
+
+def region_cell_id(participant) -> str:
+    return "region-" + slug(participant)
 
 
 # ------------------------------------------------------------------------ reading
@@ -166,6 +278,11 @@ def read(path, cfg) -> Model:
                        **_extra(c.attrs, id_attrs, cfg)},
             ))
 
+        elif c.kind == "vertex" and c.attrs.get("participant"):
+            # A participating pattern's region, on its own layer.
+            m.attrs.setdefault("regions", []).append(
+                {"participant": c.attrs["participant"], "label": _strip_html(c.label)})
+
         elif c.kind == "edge" and on_base and not scen:
             s, t = cells.get(c.source), cells.get(c.target)
             m.edges.append(Edge(
@@ -203,6 +320,7 @@ def read(path, cfg) -> Model:
                 target=_first(t.attrs, id_attrs) if t else "",
                 action=_unnumber(_strip_html(c.label)),
                 edge=c.attrs.get(edge_attr, ""),
+                uses=c.attrs.get("uses", ""),
                 attrs={k: v for k, v in c.attrs.items()
                        if k in ("from_abb", "to_abb", "from", "to")},
             ))
@@ -214,7 +332,10 @@ def read(path, cfg) -> Model:
 
 
 def _unnumber(s: str) -> str:
-    """Drop a leading "3: " that the writer adds for legibility on the canvas."""
+    """Drop a leading "3: ", or "[+] 3: " on a participation step, that the writer adds
+    for legibility on the canvas."""
+    if s.startswith(CALL_MARKER + " "):
+        s = s[len(CALL_MARKER) + 1:]
     head, sep, rest = s.partition(":")
     return rest.strip() if sep and head.strip().isdigit() else s
 
@@ -280,6 +401,10 @@ def write(m: Model, path, cfg, style=None) -> None:
     out.append("      <root>")
     out.append('        <mxCell id="0" />')
     out.append('        <mxCell id="1" value="Structure" parent="0" />')
+    areas = regions(m, {n: (x, y, NODE_W, NODE_H) for n, (x, y) in pos.items()},
+                    participant_names(m, cfg), cfg)
+    if areas:
+        out.append(f'        <mxCell id="{REGIONS_LAYER_ID}" value="{REGIONS_LAYER}" parent="0" />')
     for sc in m.scenarios:
         out.append(f'        <mxCell id="lyr-{_esc(sc.key)}" '
                    f'value="{_esc(sc.key + " " + (sc.name or ""))}" parent="0" visible="0" />')
@@ -292,6 +417,7 @@ def write(m: Model, path, cfg, style=None) -> None:
                                      "strokeColor=none;fontColor=#FFFFFF;fontSize=14;fontStyle=1;")
     flow_style = style.get("flow", "edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;"
                                    "strokeWidth=2;strokeColor=#C25B54;fontColor=#C25B54;fontSize=12;")
+    uses_style = style.get("flow_uses", FLOW_USES_STYLE)
 
     # Structure. id and the identifier attribute are set to the same value on purpose:
     # a copy-pasted shape keeps the attribute and gets a random id, which is how
@@ -304,8 +430,10 @@ def write(m: Model, path, cfg, style=None) -> None:
         grp = f' {cfg.group_attr}="{_esc(n.group)}"' if n.group else ""
         kind = f' {cfg.kind_attr}="{_esc(n.kind)}"' if n.kind else ""
         label = n.label or n.id
+        lk = link_attrs(cfg, n.id, os.path.dirname(os.path.abspath(path)))
+        linked = "".join(f' {k}="{_esc(v)}"' for k, v in lk.items())
         out.append(f'        <object id="{_esc(cfg.cell_id_for(n.id))}" label="{_esc(label)}" '
-                   f'{cfg.attr_for(n.id)}="{_esc(n.id)}"{grp}{kind}{extra}>')
+                   f'{cfg.attr_for(n.id)}="{_esc(n.id)}"{grp}{kind}{extra}{linked}>')
         out.append(f'          <mxCell style="{node_style}" vertex="1" parent="1">')
         out.append(f'            <mxGeometry x="{x}" y="{y}" width="{NODE_W}" '
                    f'height="{NODE_H}" as="geometry" />')
@@ -345,15 +473,28 @@ def write(m: Model, path, cfg, style=None) -> None:
                 out.append("        </object>")
             if st.actor and st.target:
                 eid = f' {cfg.edge_id_attr}="{_esc(st.edge)}"' if st.edge else ""
+                uses = f' uses="{_esc(st.uses)}"' if st.uses else ""
+                label = uses_label(st.step, st.uses) if st.uses else str(st.step)
                 out.append(f'        <object id="{_esc(sc.key)}-flow-{st.step}" '
-                           f'label="{st.step}" scenario="{_esc(sc.key)}" '
-                           f'step="{st.step}"{eid} from="{_esc(st.actor)}" '
+                           f'label="{_esc(label)}" scenario="{_esc(sc.key)}" '
+                           f'step="{st.step}"{eid}{uses} from="{_esc(st.actor)}" '
                            f'to="{_esc(st.target)}">')
-                out.append(f'          <mxCell style="{flow_style}" edge="1" parent="{lyr}" '
+                out.append(f'          <mxCell style="{uses_style if st.uses else flow_style}" '
+                           f'edge="1" parent="{lyr}" '
                            f'source="{_esc(cfg.cell_id_for(st.actor))}" target="{_esc(cfg.cell_id_for(st.target))}">')
                 out.append('            <mxGeometry relative="1" as="geometry" />')
                 out.append("          </mxCell>")
                 out.append("        </object>")
+
+    region_style = style.get("region", REGION_STYLE)
+    for a in areas:
+        out.append(f'        <object id="{_esc(region_cell_id(a["participant"]))}" '
+                   f'label="{_esc(a["label"])}" participant="{_esc(a["participant"])}">')
+        out.append(f'          <mxCell style="{region_style}" vertex="1" parent="{REGIONS_LAYER_ID}">')
+        out.append(f'            <mxGeometry x="{a["x"]}" y="{a["y"]}" width="{a["w"]}" '
+                   f'height="{a["h"]}" as="geometry" />')
+        out.append("          </mxCell>")
+        out.append("        </object>")
 
     out.append("      </root>")
     out.append("    </mxGraphModel>")

@@ -1,10 +1,10 @@
 ---
 name: model
-description: Treat a diagram and a document as two views of one model of boxes and lines. Extract a model from Markdown tables, draw.io, JSON or YAML; emit it to any of those; validate one representation against another to catch a re-pointed arrow or an undrawn row; and render draw.io layers to SVG, PNG or PDF. Use when asked to generate a diagram from a table, check a diagram matches its document, export a diagram, list a diagram's layers, or convert a model between formats.
+description: Treat a diagram and a document as two views of one model of boxes and lines. Extract a model from Markdown tables, draw.io, JSON or YAML; emit it to any of those; validate one representation against another to catch a re-pointed arrow or an undrawn row; and render draw.io layers to SVG, PNG or PDF. Use when asked to generate a diagram from a table, check a diagram matches its document, export a diagram, list a diagram's layers, convert a model between formats, or trace which patterns a composite pattern's scenarios run.
 license: CC-BY-4.0 AND Apache-2.0. Content under CC BY 4.0, code under Apache-2.0; see LICENSE and NOTICE.
 compatibility: Python 3.9 or newer; Python 3.11 or newer to read a binding file. Rendering needs draw.io desktop installed (the installed build, not the portable exe). Reading YAML needs PyYAML; writing YAML needs nothing.
 metadata:
-  version: "0.7.1"
+  version: "0.8.0"
   homepage: https://github.com/dermot-obrien/diagram-model
   x-skill-requires: ""
   x-derived-from: "https://github.com/dermot-obrien/ai-assisted-work/tree/ac5c7ecfc3f7872737b5760906350efaa4441470/skills/model"
@@ -31,14 +31,15 @@ Do not maintain two sources. Derive the others.
 Run from the skill directory. No installation is needed; `bin/model.py` puts `src` on the path itself.
 
 ```bash
-python bin/model.py doctor           [--skill NAME] [--json]
+python bin/model.py doctor           [--skill NAME] [--doc FILE] [--json]
 python bin/model.py extract <file>   --format json|yaml|csv [--out FILE]
 python bin/model.py emit    <file>   --to drawio|markdown|json|yaml|csv --out FILE [--force]
 python bin/model.py validate <file>  [--against OTHER] [--json] [--fail-on error|warn|never]
+python bin/model.py composition <doc> [--json]
 python bin/model.py sync <doc> <drawio> [--prune] [--dry-run] [--adopt]
 python bin/model.py rename  <doc> OLD NEW [--drawio FILE] [--dry-run]
 python bin/model.py scan    <folder> [--recursive] [--json] [--fail-on error|warn|never]
-python bin/model.py render  <drawio> --out FILE [--format svg|png|pdf] [--layer NAME ...] [--theme light|dark|auto]
+python bin/model.py render  <drawio> --out FILE [--format svg|png|pdf] [--layer NAME ...] [--theme light|dark|auto] [--no-regions]
 python bin/model.py layers  <drawio> [--json]
 python bin/model.py animate <doc>    [--out FILE] [--image PNG|SVG] [--render auto|always|never] [--accent #RRGGBB] [--interval S] [--force]
 python bin/model.py stamp   <image>  --diagram DRAWIO [--layer NAME ...] | --check
@@ -153,6 +154,16 @@ The structure view it draws on is the one thing draw.io is needed for, and draw.
 
 It validates first and stops rather than guesses. A step with no narrative, an endpoint with no shape on the structure layer, a scenario in the document but not on the diagram or the reverse, or a rendered view whose proportions differ from the shapes' extent is an error that names every case. The last usually means an edge label or waypoint lies outside the shapes; a background rectangle enclosing the structure layer, used as a frame, fixes it.
 
+### Composing patterns
+
+A composite pattern's scenario steps run other patterns' flows, its participating patterns, through an optional `Uses` column: `PAT-905 S1`, optionally with a role binding, `PAT-905 S1 (01=ABB-901)`, or `TBD <name>` for one not yet written. A scenario may declare where its flow starts and finishes with `Start: <box>` and `Finish: <box>` lines under its heading. The constructs are BPMN 2.0.2's call activity and start and end events and UML 2.5.1's collaboration use and ports.
+
+`validate` resolves the composition (rules `uses_invalid`, `uses_step_endpoints`, `participant_missing`, `participant_scenario_missing`, `participant_binding`, `composition_cycle`, `participant_unapproved`, `scenario_start_finish` as errors; `participant_join`, `participant_open`, `participant_ambiguous`, `step_uses_mismatch` as warnings), `composition <doc>` prints the tree, `emit` and `sync` keep a `Participating patterns` layer of dashed regions that `render` includes with the structure unless `--no-regions`, and the walkthrough drills into each participating pattern's own. Read [references/composition.md](references/composition.md) before writing or checking a composite pattern: it has the syntax, where participating patterns are found, every rule, and the diagram and walkthrough conventions.
+
+### Linking boxes to their pages
+
+A box whose id the workspace declares can link to that item's page: `[model] link_site` and `link_target` (`new` or `same`), and `[[links]]` rules of `match`, optional `locate`, `href` (with `{id}`, `{site}`, `{located}`, `{rel}`) and optional `target`, tried in order. Local ids never link; a rule that matches but finds nothing is `link_unresolved`, a warning. The walkthrough gets a hotspot on each linked box and linked names, and `emit` and `sync` set draw.io's `link`. `doctor --doc <file>` shows what resolves. [references/links.md](references/links.md) has the detail.
+
 ### Working without draw.io desktop
 
 Rendering needs draw.io desktop; nothing else does. Where it is not installed, the views are exported by hand, from draw.io desktop or from draw.io online, and committed beside their diagrams:
@@ -181,6 +192,8 @@ Relative paths anchor to the directory holding the binding file, never to the wo
 It declares the draw.io attribute names, the Markdown table contract as section and column names, optional catalogue files to check identifiers against, each with an optional `level` of `conceptual`, `logical` or `physical` for the derived abstraction, and a severity for each rule. `examples/model.toml` is a complete worked example. With no config at all, conventional headings such as `## Components` and `## Interfaces` work out of the box.
 
 A declared catalogue that cannot be read is an error, not an absence. Skipping it silently would turn `not_in_catalogue` into a no-op exactly when the binding is wrong, which is the moment it most needs to speak up.
+
+Composing patterns adds `patterns_root`, `pattern_id` and `approved_statuses` to `[model]`, the `uses` scenario column, and the rules listed in references/composition.md; `[[links]]` and `link_site` and `link_target` are in references/links.md.
 
 The rules added for local identifiers are `id_unmatched`, `id_attr_mismatch`, `mapping_missing` (warn by default), `mapping_unknown_local`, `mapping_invalid`, `mapping_not_in_catalogue` and `mapping_duplicates_node` (warn).
 

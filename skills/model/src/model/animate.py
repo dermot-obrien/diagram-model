@@ -27,7 +27,7 @@ import struct
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import drawio, markdown, render, validate
+from . import composition, drawio, links, markdown, render, validate
 
 DEFAULT_ACCENT = "#D6453D"
 TOLERANCE = 0.015          # relative difference between image and diagram aspect ratios
@@ -88,6 +88,20 @@ def geometry(path):
                 if b and (b[2] > 0 or b[3] > 0):
                     on_base[cid] = b
     return cells, on_base, base.id, drawio._strip_html(base.label) or "Structure"
+
+
+def region_boxes(path):
+    """{cell id: (x, y, w, h)} of the participating patterns' regions, which sit on
+    their own layer at absolute positions."""
+    pages = list(drawio.iter_pages(path))
+    if not pages:
+        return {}
+    out = {}
+    for cid, c in drawio._parse_page(pages[0][3]).items():
+        if c.kind == "vertex" and c.geom and c.attrs.get("participant"):
+            out[cid] = (_num(c.geom.get("x")), _num(c.geom.get("y")),
+                        _num(c.geom.get("width")), _num(c.geom.get("height")))
+    return out
 
 
 def bounds(boxes):
@@ -153,7 +167,7 @@ def current_view(diagram_path, base_name):
             continue
         fresh, _src, r = rec
         layers = r.get("layers") or []
-        if layers and layers != [base_name]:
+        if layers and layers not in ([base_name], [base_name, drawio.REGIONS_LAYER]):
             reasons.append(f"{name} shows layers {layers}, not only {base_name!r}")
             continue
         if not fresh:
@@ -168,9 +182,13 @@ def current_view(diagram_path, base_name):
 # ------------------------------------------------------------------ assembly
 
 def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=False,
-          render_mode="auto"):
-    """Everything the page needs, as a dict. Raises AnimateError listing every problem."""
+          render_mode="auto", out=None):
+    """Everything the page needs, as a dict. Raises AnimateError listing every problem.
+
+    `out` is where the page will be written, default `default_out(doc_path)`; a link
+    rule's `{rel}` is relative to it."""
     doc = markdown.read(doc_path, cfg)
+    page_dir = os.path.dirname(os.path.abspath(out or default_out(doc_path)))
     if not diagram_path:
         block = doc.attrs.get("model") or {}
         if not block.get("diagram"):
@@ -197,6 +215,7 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
         problems.append(f"  {k}: has an overlay layer but no steps table in the document")
 
     used_nodes, scenarios = set(), []
+    resolver = composition.Resolver(cfg)
     for key in [s.key for s in doc.scenarios if s.key in dia_scen]:
         ds, gs = doc_scen[key], dia_scen[key]
         by_step = {s.step: s for s in ds.steps}
@@ -222,8 +241,11 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
             edge = d.edge or g.edge
             if edge and edge not in doc_edges:
                 problems.append(f"{where}: interface {edge} has no row in the document")
-            steps.append({"n": g.step, "from": g.actor, "to": g.target, "edge": edge,
-                          "action": d.action.strip()})
+            step = {"n": g.step, "from": g.actor, "to": g.target, "edge": edge,
+                    "action": d.action.strip()}
+            if d.uses:
+                step["uses"] = _uses(d.uses, doc_path, cfg, resolver, page_dir)
+            steps.append(step)
         for s in ds.steps:
             if s.step not in {g.step for g in gs.steps}:
                 problems.append(f"  {key} step {s.step}: in the document but has no arrow "
@@ -256,14 +278,26 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
     else:
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "structure.png")
-            render.export(diagram_path, out, fmt="png", layers=[base_name], binary=drawio_bin)
+            render.export(diagram_path, out, fmt="png",
+                          layers=render.with_regions(diagram_path, [base_name]), binary=drawio_bin)
             with open(out, "rb") as fh:
                 view = fh.read()
     mime, W, H = image_info(view)
 
-    x0, y0, x1, y1 = bounds(boxes)
+    # The view shows the structure alone, or with the participating patterns' regions,
+    # which reach beyond the boxes; take the extent whose proportions match it.
+    frames = [bounds(boxes)]
+    areas = region_boxes(diagram_path)
+    if areas:
+        frames.append(bounds({**boxes, **areas}))
+
+    def off(f):
+        fw, fh = max(f[2] - f[0], 1), max(f[3] - f[1], 1)
+        return abs((W / H) - (fw / fh)) / (fw / fh)
+
+    x0, y0, x1, y1 = min(frames, key=off)
     bw, bh = max(x1 - x0, 1), max(y1 - y0, 1)
-    if abs((W / H) - (bw / bh)) / (bw / bh) > TOLERANCE:
+    if off((x0, y0, x1, y1)) > TOLERANCE:
         raise AnimateError(
             f"  ! the rendered view is {W}x{H} but the shapes span {bw:.0f}x{bh:.0f}, so "
             f"positions would not line up. Something outside the shapes widens the render, "
@@ -282,6 +316,20 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
     for nid in sorted(used_nodes):
         n = doc_nodes[nid]
         nodes[nid] = {"box": px(boxes[node_cell[nid]]), "name": n.label or nid}
+        link = links.resolve(cfg, nid, page_dir)
+        if link is not None and link.href:
+            nodes[nid].update({"href": link.href, "target": link.target})
+    # Every box a link rule resolves gets a hotspot on the view, used in a step or not.
+    hot = []
+    for n in doc.nodes:
+        cell = node_cell.get(n.id)
+        if not boxes.get(cell) or any(h["id"] == n.id for h in hot):
+            continue
+        link = links.resolve(cfg, n.id, page_dir)
+        if link is not None and link.href:
+            hot.append({"id": n.id, "name": n.label or n.id, "box": px(boxes[cell]),
+                        "href": link.href, "target": link.target})
+    notes = [f"warn  {f.where}: {f.message}  [{f.rule}]" for f in links.findings(doc, cfg, page_dir)]
     edges = {}
     for sc in scenarios:
         for st in sc["steps"]:
@@ -291,8 +339,57 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
                                      "details": [[k.replace("_", " ").capitalize(), v]
                                                  for k, v in e.attrs.items()][:3]}
     return {"title": doc.name or os.path.basename(doc_path), "size": [W, H], "nodes": nodes,
-            "edges": edges, "scenarios": scenarios, "mime": mime,
+            "edges": edges, "scenarios": scenarios, "hot": hot, "notes": notes, "mime": mime,
             "image": base64.b64encode(view).decode("ascii")}
+
+
+def _uses(value, doc_path, cfg, resolver, page_dir=None):
+    """A participation step's drill-in: the ref, and the participating pattern's
+    walkthrough when it resolves.
+
+    That page is where `animate` writes it, beside the participating pattern's document.
+    The link is made relative in `write`, once the composite pattern's own page has a
+    place."""
+    val, kind, pid, key = markdown.parse_uses(value, cfg)[:4]
+    out = {"ref": val, "kind": kind}
+    if kind == "ref":
+        out["key"] = key
+        # The participating pattern's own page, when a link rule covers its id: a second,
+        # lesser link beside the drill-in to its walkthrough.
+        link = links.resolve(cfg, pid, page_dir)
+        if link is not None and link.href:
+            out["page"] = {"href": link.href, "target": link.target, "id": pid}
+        paths, _where = resolver.find(pid, doc_path)
+        if paths:
+            out["_target"] = os.path.abspath(default_out(paths[0]))
+    return out
+
+
+def _links(data, out):
+    """Turn each drill-in target into a link relative to the page at `out`, and the way
+    back into one relative to the participating pattern's page. Only relative links, so a folder of
+    walkthroughs opens from disk and survives being moved as a whole."""
+    from urllib.parse import quote
+    notes, base = [], os.path.dirname(os.path.abspath(out))
+    for sc in data["scenarios"]:
+        for st in sc["steps"]:
+            u = st.get("uses")
+            if not u or "_target" not in u:
+                continue
+            tgt = u.pop("_target")
+            try:
+                href = os.path.relpath(tgt, base)
+                back = os.path.relpath(os.path.abspath(out), os.path.dirname(tgt))
+            except ValueError:               # another drive on Windows: no relative form
+                notes.append(f"{sc['key']} step {st['n']}: {u['ref']} is on another drive; "
+                             f"no link")
+                continue
+            u["href"] = quote(href.replace(os.sep, "/"))
+            u["back"] = quote(back.replace(os.sep, "/"))
+            if not os.path.exists(tgt):
+                notes.append(f"{sc['key']} step {st['n']}: {u['ref']} links to "
+                             f"{href.replace(os.sep, '/')}, not built yet; run animate there")
+    return notes
 
 
 def default_out(doc_path):
@@ -306,6 +403,7 @@ def write(data, out, accent=DEFAULT_ACCENT, interval=3.2):
         raise AnimateError(f"  ! --accent must be a #RRGGBB colour, not {accent!r}")
     img = data.pop("image")
     mime = data.pop("mime", "image/png")
+    notes = data.pop("notes", []) + _links(data, out)
     store = "model-animate:" + re.sub(r"[^a-z0-9]+", "-", data["title"].lower()).strip("-")
     html = (_TEMPLATE
             .replace("__TITLE__", _esc(data["title"]))
@@ -319,7 +417,8 @@ def write(data, out, accent=DEFAULT_ACCENT, interval=3.2):
     with open(out, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(html)
     return {"path": os.path.abspath(out), "bytes": os.path.getsize(out),
-            "scenarios": {s["key"]: len(s["steps"]) for s in data["scenarios"]}}
+            "scenarios": {s["key"]: len(s["steps"]) for s in data["scenarios"]},
+            "notes": notes}
 
 
 def _esc(s):
@@ -367,6 +466,23 @@ ol li .k{flex:0 0 22px;height:22px;border-radius:50%;background:var(--line);text
 ol li button[aria-current="step"] .k,ol li.done .k{background:var(--accent);color:#fff}
 .ctl{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .hint{color:var(--muted);font-size:12px}
+.back{color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;margin-right:8px}
+.back:hover,.drill a:hover{border-color:var(--accent)}
+.drill{border:1px dashed var(--accent);border-radius:6px;padding:8px 10px}
+.drill a{color:var(--ink);font-weight:600;text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:4px 8px;display:inline-block;margin-top:6px}
+.chip{color:var(--muted);font-size:12px;margin-left:4px}
+.sub{cursor:pointer}
+/* Links to a box's own page: hotspots on the view, and names in the steps and the pop-up */
+.hot{cursor:pointer}.hot rect{fill-opacity:0}.hot:hover rect,.hot:focus rect{fill-opacity:.12}
+.who{font-size:12px;color:var(--muted);margin:0 0 4px 36px}
+.who a,.pop .m a,.drill a.page-link{color:var(--pick);text-decoration:underline}
+.pop .m a{pointer-events:auto}
+.drill a.page-link{border:0;padding:0;margin-left:10px;font-weight:400}
+/* BPMN's call-activity marker: a small boxed plus, drawn rather than a glyph so it always renders */
+.cam{display:inline-block;position:relative;width:11px;height:11px;border:1.5px solid currentColor;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.cam::before,.cam::after{content:"";position:absolute;left:50%;top:50%;background:currentColor;transform:translate(-50%,-50%)}
+.cam::before{width:7px;height:1.5px}.cam::after{width:1.5px;height:7px}
+.cam.open{color:#8A93A3}
 .draw{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .7s ease forwards}
 @keyframes draw{to{stroke-dashoffset:0}}
 .pulse{animation:pulse 1.2s ease-in-out infinite}
@@ -376,7 +492,7 @@ ol li button[aria-current="step"] .k,ol li.done .k{background:var(--accent);colo
 </head>
 <body>
 <header>
-  <h1>__TITLE__: scenarios</h1>
+  <h1><a class="back" id="back" hidden>&#9664; Back to the composite pattern</a>__TITLE__: scenarios</h1>
   <div class="tabs" role="group" aria-label="Scenario" id="tabs"></div>
 </header>
 <main>
@@ -390,7 +506,7 @@ ol li button[aria-current="step"] .k,ol li.done .k{background:var(--accent);colo
             <mask id="m"><rect x="0" y="0" width="__W__" height="__H__" fill="#fff"/><g id="holes"></g></mask>
           </defs>
           <rect id="shade" x="0" y="0" width="__W__" height="__H__" fill="var(--shade)" mask="url(#m)" opacity="0"/>
-          <g id="done"></g><g id="cur"></g>
+          <g id="hot"></g><g id="done"></g><g id="cur"></g>
         </svg>
       </div>
       <div class="pop" id="pop" role="status" aria-live="polite"></div>
@@ -404,26 +520,54 @@ ol li button[aria-current="step"] .k,ol li.done .k{background:var(--accent);colo
       <button id="play" aria-label="Play">&#9654; Play</button>
       <button id="reset">Restart</button>
       <button id="follow" aria-pressed="true">Zoom to step: on</button>
-      <span class="hint">Arrow keys step, space plays</span>
+      <span class="hint" id="hint">Arrow keys step, space plays</span>
     </div>
+    <div class="drill" id="drill" hidden></div>
     <ol id="steps"></ol>
   </aside>
 </main>
 <script>
-const D=__DATA__, W=D.size[0], H=D.size[1], K=W/2400, ACC="__ACCENT__", NS="http://www.w3.org/2000/svg";
+const D=__DATA__, W=D.size[0], H=D.size[1], K=W/2400, ACC="__ACCENT__", GREY="#8A93A3", NS="http://www.w3.org/2000/svg";
 const $=id=>document.getElementById(id);
 let si=0, i=-1, timer=null, follow=true, Z={z:1,tx:0,ty:0};
 function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e;}
 const B=id=>{const n=D.nodes[id];return n?{x:n.box[0],y:n.box[1],w:n.box[2],h:n.box[3]}:null;};
 const nm=id=>(D.nodes[id]||{}).name||id;
 function edgePt(b,tx,ty){const cx=b.x+b.w/2,cy=b.y+b.h/2,dx=tx-cx,dy=ty-cy;if(!dx&&!dy)return[cx,cy];const s=Math.min(dx?(b.w/2)/Math.abs(dx):1e9,dy?(b.h/2)/Math.abs(dy):1e9);return[cx+dx*s,cy+dy*s];}
-function arrow(a,b,g,cur){const A=B(a),Bb=B(b);if(!A||!Bb)return[0,0];
-  const p=edgePt(A,Bb.x+Bb.w/2,Bb.y+Bb.h/2),q=edgePt(Bb,A.x+A.w/2,A.y+A.h/2);
+function arrow(a,b,g,cur,sub){const A=B(a),Bb=B(b);if(!A||!Bb)return[0,0,0,0];let d,cx,cy,mx,my;
+  if(a===b){const x0=A.x+A.w*.3,x1=A.x+A.w*.7,y=A.y,h=Math.max(90*K,A.h*.9);d=`M${x0},${y} C${x0},${y-h} ${x1},${y-h} ${x1},${y}`;cx=mx=(x0+x1)/2;cy=y-h*.5;my=y-h*.75;}
+  else{const p=edgePt(A,Bb.x+Bb.w/2,Bb.y+Bb.h/2),q=edgePt(Bb,A.x+A.w/2,A.y+A.h/2);
   const dx=q[0]-p[0],dy=q[1]-p[1],len=Math.hypot(dx,dy)||1,bend=Math.min(120*K,len*.18);
-  const cx=(p[0]+q[0])/2-dy/len*bend,cy=(p[1]+q[1])/2+dx/len*bend;
-  const path=el("path",{d:`M${p[0]},${p[1]} Q${cx},${cy} ${q[0]},${q[1]}`,fill:"none",stroke:ACC,"stroke-width":(cur?6:3)*K,"stroke-opacity":cur?1:.45,"marker-end":"url(#ah)","stroke-linecap":"round"},g);
-  if(cur){path.style.setProperty("--len",path.getTotalLength());path.classList.add("draw");}
-  return[cx,cy];}
+  cx=(p[0]+q[0])/2-dy/len*bend;cy=(p[1]+q[1])/2+dx/len*bend;mx=(p[0]+q[0])/4+cx/2;my=(p[1]+q[1])/4+cy/2;d=`M${p[0]},${p[1]} Q${cx},${cy} ${q[0]},${q[1]}`;}
+  const at={d,fill:"none",stroke:ACC,"stroke-width":(cur?6:3)*K*(sub?1.3:1),"stroke-opacity":cur?1:.45,"marker-end":"url(#ah)","stroke-linecap":"round"};
+  if(sub)at["stroke-dasharray"]=`${18*K} ${8*K} ${3*K} ${8*K}`;
+  const path=el("path",at,g);
+  if(cur&&!sub){path.style.setProperty("--len",path.getTotalLength());path.classList.add("draw");}
+  return[cx,cy,mx,my];}
+const BACK=(()=>{try{const b=new URLSearchParams(location.search).get("back");return b&&!/^[a-z][a-z0-9+.-]*:/i.test(b)&&!/^[\/\\]/.test(b)?b:null;}catch(e){return null;}})();
+function drillTarget(s){const u=s&&s.uses;if(!u||!u.href)return null;const S=D.scenarios[si];
+  const back=u.back+(BACK?"?back="+encodeURIComponent(BACK):"")+"#"+encodeURIComponent(S.key+"-"+s.n);
+  return u.href+"?back="+encodeURIComponent(back)+"#"+encodeURIComponent(u.key);}
+function drill(s){const t=drillTarget(s);if(t){stop();location.assign(t);}}
+function marker(x,y,sz,col,g){el("rect",{x:x,y:y,width:sz,height:sz,rx:2*K,fill:"none",stroke:col,"stroke-width":1.8*K,class:"cam"},g);
+  el("line",{x1:x+sz*.25,y1:y+sz/2,x2:x+sz*.75,y2:y+sz/2,stroke:col,"stroke-width":1.8*K},g);el("line",{x1:x+sz/2,y1:y+sz*.25,x2:x+sz/2,y2:y+sz*.75,stroke:col,"stroke-width":1.8*K},g);}
+function subBadge(s,x0,y0,g){const u=s.uses,live=!!u.href,col=live?"#fff":GREY,t=u.ref,sz=13*K,w=(t.length*8.6+22)*K+sz+6*K,h=28*K;
+  const G=el("g",{class:live?"sub":"sub-open"},g);el("rect",{x:x0-w/2,y:y0-h/2,width:w,height:h,rx:14*K,fill:live?ACC:"#fff",stroke:live?ACC:GREY,"stroke-width":2*K,"stroke-dasharray":live?"none":`${5*K} ${4*K}`},G);
+  marker(x0-w/2+11*K,y0-sz/2,sz,col,G);
+  const t2=el("text",{x:x0+(sz+6*K)/2,y:y0+5*K,"text-anchor":"middle","font-size":14*K,"font-weight":700,fill:col,"font-family":"system-ui,sans-serif"},G);t2.textContent=t;
+  const tt=el("title",{},G);tt.textContent=live?"Open the participating pattern "+u.ref:(u.kind==="tbd"?"Open participating pattern, not written yet: ":"No walkthrough to open: ")+u.ref;
+  if(live)G.addEventListener("click",()=>drill(s));}
+function cam(open){const c=document.createElement("span");c.className=open?"cam open":"cam";c.setAttribute("aria-hidden","true");return c;}
+function drillPanel(s){const dp=$("drill");dp.innerHTML="";dp.hidden=!(s&&s.uses);if(dp.hidden)return;const u=s.uses,p=document.createElement("div");
+  p.appendChild(cam(!u.href));p.appendChild(document.createTextNode(u.href?`Step ${s.n} runs the participating pattern ${u.ref}.`:u.kind==="tbd"?`Step ${s.n} runs an open participating pattern, ${u.ref}, not written yet.`:`Step ${s.n} runs ${u.ref}, which has no walkthrough to open.`));dp.appendChild(p);
+  if(u.href){const a=document.createElement("a");a.setAttribute("href",drillTarget(s));a.textContent="Open "+u.ref+" \u2934";dp.appendChild(a);}
+  if(u.page){const a=document.createElement("a");opens(a,u.page);a.className="page-link";a.textContent=u.page.id+" page";a.setAttribute("title",tip(u.page.id+" page",u.page));dp.appendChild(a);}}
+function opens(a,t){a.setAttribute("href",t.href);if(t.target!=="same"){a.setAttribute("target","_blank");a.setAttribute("rel","noopener");}}
+function tip(name,t){return name+(t.target==="same"?"":" (opens in a new tab)");}
+function who(id){const n=D.nodes[id]||{},t=id+" "+nm(id);if(!n.href)return document.createTextNode(t);
+  const a=document.createElement("a");opens(a,n);a.textContent=t;a.setAttribute("title",tip(nm(id),n));return a;}
+function hotspots(){const g=$("hot");(D.hot||[]).forEach(h=>{const a=el("a",{class:"hot",tabindex:"-1"},g);opens(a,h);
+  el("rect",{x:h.box[0],y:h.box[1],width:h.box[2],height:h.box[3],rx:8*K,fill:ACC},a);const t=el("title",{},a);t.textContent=tip(h.name,h);});}
 function ring(id,g,strong){const b=B(id);if(b)el("rect",{x:b.x-6*K,y:b.y-6*K,width:b.w+12*K,height:b.h+12*K,rx:10*K,fill:"none",stroke:ACC,"stroke-width":(strong?5:3)*K,class:strong?"pulse":""},g);}
 function hole(id){const b=B(id);if(b)el("rect",{x:b.x-8*K,y:b.y-8*K,width:b.w+16*K,height:b.h+16*K,rx:10*K,fill:"#000"},$("holes"));}
 function badge(id,n,g,k){const b=B(id);if(!b)return;const x=b.x+14*K+k*30*K,y=b.y+2*K;el("circle",{cx:x,cy:y,r:15*K,fill:ACC,stroke:"#fff","stroke-width":3*K},g);const t=el("text",{x,y:y+5.5*K,"text-anchor":"middle","font-size":16*K,"font-weight":700,fill:"#fff","font-family":"system-ui,sans-serif"},g);t.textContent=n;}
@@ -438,7 +582,8 @@ function showPop(s){const p=$("pop"),E=D.edges[s.edge]||{};
   p.innerHTML='<div><span class="n"></span><span class="a"></span></div><div class="m"></div>';
   p.querySelector(".n").textContent=s.n;p.querySelector(".a").textContent=s.action;
   const det=(E.details||[]).map(d=>d[0]+": "+d[1]).join("  ·  ");
-  p.querySelector(".m").textContent=`${s.from} ${nm(s.from)} → ${s.to} ${nm(s.to)}${s.edge?"  ·  "+s.edge:""}${E.label?" "+E.label:""}${det?"  ·  "+det:""}`;
+  const m=p.querySelector(".m");m.appendChild(who(s.from));m.appendChild(document.createTextNode(" → "));m.appendChild(who(s.to));
+  m.appendChild(document.createTextNode(`${s.edge?"  ·  "+s.edge:""}${E.label?" "+E.label:""}${det?"  ·  "+det:""}${s.uses?"  ·  runs "+s.uses.ref:""}`));
   const c=$("canvas").getBoundingClientRect(),sc=c.width/W,T=(x,y)=>[x*sc*Z.z+Z.tx,y*sc*Z.z+Z.ty];
   const bs=[B(s.from),B(s.to)].filter(Boolean);
   const[ux0,uy0]=T(Math.min(...bs.map(b=>b.x)),Math.min(...bs.map(b=>b.y))),[ux1,uy1]=T(Math.max(...bs.map(b=>b.x+b.w)),Math.max(...bs.map(b=>b.y+b.h)));
@@ -448,24 +593,35 @@ function showPop(s){const p=$("pop"),E=D.edges[s.edge]||{};
     let[x,y]=[[cx,uy1+g],[cx,uy0-h-g],[ux1+g,cy],[ux0-w-g,cy]].find(fits)||[c.width-w-8,c.height-h-8];
     p.style.left=Math.max(8,Math.min(x,c.width-w-8))+"px";p.style.top=Math.max(8,Math.min(y,c.height-h-8))+"px";p.classList.add("on");});}
 function render(){const S=D.scenarios[si];$("done").innerHTML="";$("cur").innerHTML="";$("holes").innerHTML="";const used={};
-  S.steps.forEach((s,j)=>{if(j>i)return;const g=j===i?$("cur"):$("done"),k=used[s.from]=(used[s.from]??-1)+1;const mid=arrow(s.from,s.to,g,j===i);badge(s.from,s.n,g,k);
+  S.steps.forEach((s,j)=>{if(j>i)return;const g=j===i?$("cur"):$("done"),k=used[s.from]=(used[s.from]??-1)+1;const mid=arrow(s.from,s.to,g,j===i,!!s.uses);badge(s.from,s.n,g,k);if(s.uses)subBadge(s,mid[2],mid[3],g);
     if(j===i){ring(s.from,g,false);ring(s.to,g,true);hole(s.from);hole(s.to);focus(s,mid);showPop(s);}});
-  $("shade").setAttribute("opacity",i>=0?1:0);if(i<0){$("pop").classList.remove("on");setZ(1,0,0);}
+  drillPanel(S.steps[i]);$("shade").setAttribute("opacity",i>=0?1:0);if(i<0){$("pop").classList.remove("on");setZ(1,0,0);}
   document.querySelectorAll("#steps li").forEach((li,j)=>{li.classList.toggle("done",j<i);const b=li.querySelector("button");b.removeAttribute("aria-current");if(j===i)b.setAttribute("aria-current","step");});}
 function go(n){i=Math.max(-1,Math.min(D.scenarios[si].steps.length-1,n));render();}
 function stop(){clearInterval(timer);timer=null;$("play").innerHTML="&#9654; Play";$("play").setAttribute("aria-label","Play");}
 function play(){if(timer){stop();return;}const L=D.scenarios[si].steps.length;if(i>=L-1)go(-1);$("play").innerHTML="&#10074;&#10074; Pause";$("play").setAttribute("aria-label","Pause");go(i+1);timer=setInterval(()=>{if(i>=D.scenarios[si].steps.length-1){stop();return;}go(i+1);},__INTERVAL__);}
 function pick(n){stop();si=n;i=-1;document.querySelectorAll("#tabs button").forEach((b,j)=>b.setAttribute("aria-pressed",j===n));
   const S=D.scenarios[n];$("sname").textContent=S.key+" "+S.name;const ol=$("steps");ol.innerHTML="";
-  S.steps.forEach((s,j)=>{const li=document.createElement("li"),b=document.createElement("button");b.innerHTML='<span class="k"></span><span></span>';b.firstChild.textContent=s.n;b.lastChild.textContent=s.action;b.onclick=()=>{stop();go(j);};li.appendChild(b);ol.appendChild(li);});
+  S.steps.forEach((s,j)=>{const li=document.createElement("li"),b=document.createElement("button");b.innerHTML='<span class="k"></span><span></span>';b.firstChild.textContent=s.n;b.lastChild.textContent=s.action;if(s.uses){const c=document.createElement("span");c.className="chip";c.appendChild(cam(!s.uses.href));c.appendChild(document.createTextNode(s.uses.ref));b.lastChild.appendChild(c);}b.onclick=()=>{stop();go(j);};li.appendChild(b);
+    if((D.nodes[s.from]||{}).href||(D.nodes[s.to]||{}).href){const w=document.createElement("div");w.className="who";w.appendChild(who(s.from));w.appendChild(document.createTextNode(" → "));w.appendChild(who(s.to));li.appendChild(w);}
+    ol.appendChild(li);});
   render();try{localStorage.setItem(__STORE__,S.key);}catch(e){}}
 D.scenarios.forEach((S,n)=>{const b=document.createElement("button");b.textContent=S.key+" "+S.name;b.onclick=()=>pick(n);$("tabs").appendChild(b);});
 $("follow").onclick=()=>{follow=!follow;$("follow").setAttribute("aria-pressed",follow);$("follow").textContent="Zoom to step: "+(follow?"on":"off");render();};
 $("prev").onclick=()=>{stop();go(i-1);};$("next").onclick=()=>{stop();go(i+1);};$("play").onclick=play;$("reset").onclick=()=>{stop();go(-1);};
-document.addEventListener("keydown",e=>{if(e.key==="ArrowRight"){stop();go(i+1);}else if(e.key==="ArrowLeft"){stop();go(i-1);}else if(e.key===" "){e.preventDefault();play();}});
+document.addEventListener("keydown",e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;if(e.key==="ArrowRight"){stop();go(i+1);}else if(e.key==="ArrowLeft"){stop();go(i-1);}else if(e.key===" "){e.preventDefault();play();}
+  else if(e.key==="d"||e.key==="D"){drill(D.scenarios[si].steps[i]);}else if((e.key==="b"||e.key==="B")&&BACK){location.assign(BACK);}});
 window.addEventListener("resize",()=>{if(i>=0)render();});
+function fromHash(){let h="";try{h=decodeURIComponent(location.hash.slice(1));}catch(e){}if(!h)return null;
+  for(let n=0;n<D.scenarios.length;n++){const S=D.scenarios[n],k=S.key;if(h===k)return[n,-1];
+    if(h.startsWith(k+"-")){const m=Number(h.slice(k.length+1)),j=S.steps.findIndex(s=>s.n===m);if(j>=0)return[n,j];}}return null;}
+function openHash(){const h=fromHash();if(!h)return false;pick(h[0]);if(h[1]>=0)go(h[1]);return true;}
+window.addEventListener("hashchange",openHash);
+hotspots();
+if(BACK){const a=$("back");a.setAttribute("href",BACK);a.hidden=false;}
+{const sub=D.scenarios.some(S=>S.steps.some(s=>s.uses&&s.uses.href));if(sub)$("hint").textContent+=", D opens a participating pattern";if(BACK)$("hint").textContent+=", B goes back";}
 let start=0;try{const k=localStorage.getItem(__STORE__);const n=D.scenarios.findIndex(s=>s.key===k);if(n>=0)start=n;}catch(e){}
-pick(start);
+if(!openHash())pick(start);
 </script>
 </body>
 </html>

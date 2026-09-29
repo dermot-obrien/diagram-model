@@ -21,11 +21,14 @@ correct trade for contiguity and endpoint agreement holding by construction.
 from __future__ import annotations
 
 import html
+import os
 import re
 import xml.etree.ElementTree as ET
 
+from .drawio import (REGIONS_LAYER, REGIONS_LAYER_ID, REGION_STYLE, regions, region_cell_id,
+                     participant_names, uses_label, link_attrs)
 from .drawio import (NODE_W, NODE_H, ROW_GAP, MARGIN, BADGE, OBJECT_TAGS, RESERVED,
-                     _strip_html)
+                     FLOW_USES_STYLE, _strip_html)
 
 ORPHAN_STYLE = "strokeColor=#DC2626;strokeWidth=3;dashed=1;"
 
@@ -131,6 +134,38 @@ def _wrap(root, el):
     return obj, el
 
 
+def _sync_link(root, cfg, nid, drawn_nodes, page_dir, dry_run) -> list:
+    """Keep a box's draw.io link in step with the [[links]] rules: set it when a rule
+    resolves the id, remove it when a rule matches but no longer resolves. A box no rule
+    matches keeps whatever link its author gave it."""
+    from . import links
+    link = links.resolve(cfg, nid, page_dir)
+    if link is None:
+        return []
+    el, obj, mx = drawn_nodes[nid]
+    want = link_attrs(cfg, nid, page_dir)
+    have = {k: obj.get(k) for k in ("link", "linkTarget") if obj is not None and obj.get(k)}
+    if want == have:
+        return []
+    if want:
+        change = Change("update", "node", nid, f"link -> {want['link']}")
+        if not dry_run:
+            if obj is None:
+                obj, mx = _wrap(root, el)
+                drawn_nodes[nid] = (obj, obj, mx)
+            for k in ("link", "linkTarget"):
+                obj.attrib.pop(k, None)
+            for k, v in want.items():
+                obj.set(k, v)
+        return [change]
+    if not have:
+        return []
+    if not dry_run:
+        for k in ("link", "linkTarget"):
+            obj.attrib.pop(k, None)
+    return [Change("update", "node", nid, f"link removed; {link.problem}")]
+
+
 def sync(doc, path, cfg, prune=False, dry_run=False, adopt=False) -> list:
     """Reconcile `path` with the model `doc`. Returns the changes made or proposed.
 
@@ -139,6 +174,7 @@ def sync(doc, path, cfg, prune=False, dry_run=False, adopt=False) -> list:
     model without losing its layout.
     """
     tree = ET.parse(path)
+    page_dir = os.path.dirname(os.path.abspath(path))
     mxfile = tree.getroot()
     diagrams = mxfile.findall("diagram")
     if not diagrams:
@@ -167,7 +203,7 @@ def sync(doc, path, cfg, prune=False, dry_run=False, adopt=False) -> list:
         if mx is None:
             continue
         attrs = _attrs_of(obj, mx)
-        if attrs.get("scenario"):
+        if attrs.get("scenario") or attrs.get("participant"):
             continue
         if mx.get("vertex") == "1":
             nid = _first(attrs, id_attrs)
@@ -216,12 +252,15 @@ def sync(doc, path, cfg, prune=False, dry_run=False, adopt=False) -> list:
                 changes.append(Change("update", "node", nid, f"{cfg.group_attr} -> {n.group}"))
                 if not dry_run:
                     obj.set(cfg.group_attr, n.group)
+            changes += _sync_link(root, cfg, nid, drawn_nodes, page_dir, dry_run)
         else:
             changes.append(Change("add", "node", nid, "placed below the existing shapes"))
             if not dry_run:
                 max_y += NODE_H + ROW_GAP
-                root.append(_new_node(n, cfg, cfg.attr_for(nid), base_id, MARGIN,
-                                      int(max_y)))
+                node = _new_node(n, cfg, cfg.attr_for(nid), base_id, MARGIN, int(max_y))
+                for k, v in link_attrs(cfg, nid, page_dir).items():
+                    node.set(k, v)
+                root.append(node)
 
     for nid, (el, obj, mx) in drawn_nodes.items():
         if nid in wanted:
@@ -298,6 +337,10 @@ def sync(doc, path, cfg, prune=False, dry_run=False, adopt=False) -> list:
         lyr.set("visible", "0")
         _append_overlay(root, sc, cfg, drawn_nodes, wanted, f"lyr-{sc.key}", cell_of)
 
+    # ------------------------------------------------ participating patterns' regions
+    # Derived from the Uses steps and the boxes' current positions, so replaced too.
+    changes += _sync_regions(root, doc, cfg, layers, cell_of, dry_run)
+
     if not dry_run:
         mxfile.set("compressed", "false")
         tree.write(path, encoding="utf-8", xml_declaration=False)
@@ -362,6 +405,90 @@ def _geom_of(entry):
         return None
 
 
+def absolute_boxes(root) -> dict:
+    """{cell id: (x, y, w, h)} for every vertex, made absolute by adding the position of
+    each group or container it sits in, as draw.io stores a nested cell relative to them."""
+    cells = {}
+    for el in root:
+        obj, mx = _obj_of(el)
+        if mx is None or mx.get("vertex") != "1":
+            continue
+        g = mx.find("mxGeometry")
+        if g is None:
+            continue
+        try:
+            geo = tuple(float(g.get(k) or 0) for k in ("x", "y", "width", "height"))
+        except ValueError:
+            continue
+        cells[_cell_id(obj, mx)] = (mx.get("parent"), geo)
+    out = {}
+
+    def resolve(cid, seen=()):
+        if cid in out:
+            return out[cid]
+        parent, (x, y, w, h) = cells[cid]
+        if parent in cells and parent not in seen:
+            px, py, _w, _h = resolve(parent, seen + (cid,))
+            x, y = x + px, y + py
+        out[cid] = (x, y, w, h)
+        return out[cid]
+
+    for cid in cells:
+        resolve(cid)
+    return out
+
+
+def _sync_regions(root, doc, cfg, layers, cell_of, dry_run) -> list:
+    """Replace the participating patterns' regions with ones computed from the boxes'
+    current positions, and drop the layer when nothing is composed."""
+    changes = []
+    had = {}
+    for el in list(root):
+        obj, mx = _obj_of(el)
+        if obj is not None and obj.get("participant"):
+            had[obj.get("participant")] = el
+    boxes = absolute_boxes(root)
+    by_node = {nid: boxes[c] for nid, c in cell_of.items() if c in boxes}
+    areas = regions(doc, by_node, participant_names(doc, cfg), cfg)
+    for p in sorted(set(had) - {a["participant"] for a in areas}):
+        changes.append(Change("remove", "region", p, "no step runs it"))
+    for a in areas:
+        changes.append(Change("rebuild", "region", a["participant"],
+                              f"{a['w']}x{a['h']} at {a['x']},{a['y']}"))
+    if dry_run:
+        return changes
+    for el in had.values():
+        root.remove(el)
+    for el in list(root):
+        if el.tag == "mxCell" and (el.get("id") == REGIONS_LAYER_ID
+                                   or (el.get("parent") == "0" and el.get("value") == REGIONS_LAYER)):
+            root.remove(el)
+    if not areas:
+        return changes
+    # The layer sits just above the structure, below the scenario overlays.
+    base = next((el for el in root if el.tag == "mxCell" and el.get("parent") == "0"
+                 and el.get("id") != "0"), None)
+    lyr = ET.Element("mxCell")
+    lyr.set("id", REGIONS_LAYER_ID)
+    lyr.set("value", REGIONS_LAYER)
+    lyr.set("parent", "0")
+    idx = list(root).index(base) + 1 if base is not None else len(root)
+    root.insert(idx, lyr)
+    style = cfg.style.get("region", REGION_STYLE)
+    for a in areas:
+        obj = ET.SubElement(root, "object")
+        obj.set("id", region_cell_id(a["participant"]))
+        obj.set("label", a["label"])
+        obj.set("participant", a["participant"])
+        mx = ET.SubElement(obj, "mxCell")
+        mx.set("style", style); mx.set("vertex", "1"); mx.set("parent", REGIONS_LAYER_ID)
+        g = ET.SubElement(mx, "mxGeometry")
+        for k, v in (("x", a["x"]), ("y", a["y"]), ("width", a["w"]), ("height", a["h"])):
+            g.set(k, str(v))
+        g.set("as", "geometry")
+    return changes
+
+
 def _append_overlay(root, sc, cfg, drawn_nodes, wanted, lyr, cell_of=None):
     """Badges and flow arrows over the real shapes, at their real positions."""
     cell_of = cell_of or {}
@@ -369,6 +496,7 @@ def _append_overlay(root, sc, cfg, drawn_nodes, wanted, lyr, cell_of=None):
                                          "strokeColor=none;fontColor=#FFFFFF;fontStyle=1;")
     flow_style = cfg.style.get("flow", "edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;"
                                        "dashed=1;strokeWidth=2;strokeColor=#C25B54;")
+    uses_style = cfg.style.get("flow_uses", FLOW_USES_STYLE)
     used_on = {}
     for st in sc.steps:
         entry = drawn_nodes.get(st.actor)
@@ -390,15 +518,18 @@ def _append_overlay(root, sc, cfg, drawn_nodes, wanted, lyr, cell_of=None):
         if st.actor and st.target:
             obj = ET.SubElement(root, "object")
             obj.set("id", f"{sc.key}-flow-{st.step}")
-            obj.set("label", str(st.step))
+            obj.set("label", uses_label(st.step, st.uses) if st.uses else str(st.step))
             obj.set("scenario", sc.key)
             obj.set("step", str(st.step))
             if st.edge:
                 obj.set(cfg.edge_id_attr, st.edge)
+            if st.uses:
+                obj.set("uses", st.uses)
             obj.set("from", st.actor)
             obj.set("to", st.target)
             mx = ET.SubElement(obj, "mxCell")
-            mx.set("style", flow_style); mx.set("edge", "1"); mx.set("parent", lyr)
+            mx.set("style", uses_style if st.uses else flow_style)
+            mx.set("edge", "1"); mx.set("parent", lyr)
             mx.set("source", cell_of.get(st.actor, st.actor))
             mx.set("target", cell_of.get(st.target, st.target))
             g = ET.SubElement(mx, "mxGeometry")

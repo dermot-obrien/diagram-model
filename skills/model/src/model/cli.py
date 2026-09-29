@@ -25,6 +25,7 @@ from . import sync as sync_mod
 from . import scan as scan_mod
 from . import bindings as bindings_mod
 from . import animate as animate_mod
+from . import composition as composition_mod
 
 MAX_FINDINGS = 200
 
@@ -86,11 +87,22 @@ def cmd_validate(a) -> int:
                     else (other, primary))
         findings = validate_mod.check(doc, cfg, dia)
     else:
+        other = None
         findings = (validate_mod.structural(primary, cfg) + validate_mod.catalogue(primary, cfg)
-                    + validate_mod.mapping(primary, cfg))
+                    + validate_mod.mapping(primary, cfg) + validate_mod.composition(primary, cfg)
+                    + validate_mod.links(primary, cfg))
+
+    # A composite pattern, whose scenarios run other patterns, gets a one-line summary of
+    # its composition; `model composition` prints the tree.
+    doc_model = primary if a.input.endswith((".md", ".markdown", ".mdx")) else None
+    if doc_model is None and against and against.endswith((".md", ".markdown", ".mdx")):
+        doc_model = other
+    composed = None
+    if doc_model is not None and composition_mod.participations(doc_model, cfg):
+        composed = composition_mod.summary(composition_mod.tree(doc_model.source, cfg, model=doc_model))
 
     if a.json:
-        print(json.dumps({
+        payload = {
             "input": a.input,
             "against": against,
             "summary": primary.summary(),
@@ -99,11 +111,16 @@ def cmd_validate(a) -> int:
             "counts": {s: sum(1 for f in findings if f.severity == s) for s in ("error", "warn")},
             "findings": [f.to_dict() for f in findings[:MAX_FINDINGS]],
             "truncated": max(0, len(findings) - MAX_FINDINGS),
-        }, indent=2))
+        }
+        if composed:
+            payload["composition"] = composed
+        print(json.dumps(payload, indent=2))
     else:
         level = validate_mod.abstraction(primary, cfg)
         print(f"  {os.path.basename(a.input)}: {primary.summary()}"
               + (f"; abstraction {level}" if level else ""))
+        if composed:
+            print(f"  {composition_mod.summary_line(composed)}; `model composition` shows the tree")
         for f in findings[:MAX_FINDINGS]:
             print(f"  {f}", file=sys.stderr)
         if len(findings) > MAX_FINDINGS:
@@ -122,9 +139,36 @@ def cmd_validate(a) -> int:
     return 1 if any(f.severity == "error" for f in findings) else 0
 
 
+def cmd_composition(a) -> int:
+    """The composition below a pattern: each participation step, the participating
+    pattern it runs, recursively."""
+    if not a.doc.endswith((".md", ".markdown", ".mdx")):
+        return _err(f"  ! {a.doc}: composition reads a Markdown document")
+    cfg = config_mod.load(a.config, near=a.doc)
+    resolver = composition_mod.Resolver(cfg)
+    m = markdown.read(a.doc, cfg)
+    tree = composition_mod.tree(a.doc, resolver=resolver, model=m)
+    findings = composition_mod.findings(m, cfg, resolver=resolver)
+    summ = composition_mod.summary(tree)
+    if a.json:
+        print(json.dumps({"doc": a.doc, "search": resolver.describe(),
+                          "approvedStatuses": list(cfg.approved_statuses),
+                          "summary": summ, "result": validate_mod.worst(findings),
+                          "tree": tree, "findings": [f.to_dict() for f in findings]},
+                         indent=2))
+    else:
+        for ln in composition_mod.render(tree):
+            print(f"  {ln}")
+        print(f"  {composition_mod.summary_line(summ)}")
+        for f in findings[:MAX_FINDINGS]:
+            print(f"  {f}", file=sys.stderr)
+    return 1 if any(f.severity == "error" for f in findings) else 0
+
+
 def cmd_render(a) -> int:
     try:
-        r = render_mod.export(a.input, a.out, fmt=a.format, layers=a.layer or None,
+        r = render_mod.export(a.input, a.out, fmt=a.format,
+                              layers=render_mod.with_regions(a.input, a.layer, not a.no_regions) or None,
                               scale=a.scale, width=a.width, transparent=a.transparent,
                               binary=a.drawio_bin, timeout=a.timeout, theme=a.theme)
     except SystemExit as e:
@@ -219,7 +263,7 @@ def cmd_doctor(a) -> int:
     reading the binding and the binding pointing somewhere wrong, into one visible one.
     """
     here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    cfg = config_mod.load(a.config, near=a.near or os.getcwd())
+    cfg = config_mod.load(a.config, near=a.near or a.doc or os.getcwd())
 
     # Any skill in the suite can be checked from here. A prose skill declares its
     # contract in inputs.toml and borrows this resolver rather than shipping a runtime
@@ -234,6 +278,18 @@ def cmd_doctor(a) -> int:
                         f"    found beside it: {', '.join(siblings) or '(none)'}", 3)
         skill_dir = found
     payload, issues = bindings_mod.report(cfg, skill_dir, skill=skill)
+    if a.doc:
+        # Which of the document's boxes the link rules resolve, and to what.
+        from . import links as links_mod
+        doc = markdown.read(a.doc, cfg)
+        payload["links"]["doc"] = a.doc
+        payload["links"]["resolved"] = links_mod.report(doc, cfg)
+        for f in links_mod.findings(doc, cfg):
+            issues.append(bindings_mod.Issue("warn", f.where, f.message))
+        if payload["result"] == "ok" and payload["links"]["resolved"] and any(
+                "problem" in v for v in payload["links"]["resolved"].values()):
+            payload["result"] = "warn"
+        payload["issues"] = [i.to_dict() for i in issues]
 
     if a.json:
         print(json.dumps(payload, indent=2))
@@ -245,6 +301,18 @@ def cmd_doctor(a) -> int:
             mark = "ok " if c["exists"] else "!! "
             print(f"  catalogue    : {mark}{c['resolved']}  [{c['column']}]")
         print(f"  identifiers  : {payload['catalogueIdentifiers']}")
+        ch = payload.get("composition") or {}
+        print(f"  patterns root: {ch.get('patternsRoot') or '(unbound)'}  [{ch.get('from')}]")
+        print(f"  approved     : {', '.join(ch.get('approvedStatuses') or [])}")
+        lk = payload.get("links") or {}
+        if lk.get("rules"):
+            print(f"  link site    : {lk.get('site') or '(unset)'}; target {lk.get('target')}")
+            for r in lk["rules"]:
+                print(f"  link rule    : {r['match']} -> {r['href']}"
+                      + (f"  (locate {r['locate']})" if r.get("locate") else "")
+                      + (f"  [target {r['target']}]" if r.get("target") else ""))
+        for ident, v in sorted((lk.get("resolved") or {}).items()):
+            print(f"  link         : {ident} -> {v.get('href') or 'unresolved: ' + v.get('problem', '')}")
         if payload["siblings"]:
             print(f"  siblings     : {', '.join(payload['siblings'])}")
         for k, v in sorted(payload["resolved"].items()):
@@ -269,7 +337,8 @@ def cmd_animate(a) -> int:
     cfg = config_mod.load(a.config, near=a.doc)
     try:
         data = animate_mod.build(a.doc, cfg, diagram_path=a.diagram, image=a.image,
-                                 drawio_bin=a.drawio_bin, force=a.force, render_mode=a.render)
+                                 drawio_bin=a.drawio_bin, force=a.force, render_mode=a.render,
+                                 out=a.out)
         r = animate_mod.write(data, a.out or animate_mod.default_out(a.doc),
                               accent=a.accent, interval=a.interval)
     except animate_mod.AnimateError as e:
@@ -278,6 +347,8 @@ def cmd_animate(a) -> int:
         return _err(str(e), 3)
     steps = ", ".join(f"{k} {n}" for k, n in r["scenarios"].items())
     print(f"  {_shown(r['path'])} ({r['bytes'] // 1024} KB; {steps} steps). Opens from disk.")
+    for n in r.get("notes", []):
+        print(f"  {n}" if n.startswith("warn") else f"  note: {n}", file=sys.stderr)
     return 0
 
 
@@ -354,6 +425,11 @@ def build_parser():
     v.add_argument("--fail-on", default="error", choices=("error", "warn", "never"))
     v.set_defaults(fn=cmd_validate)
 
+    ch = common(sub.add_parser("composition", help="print the patterns a composite pattern's scenarios run"))
+    ch.add_argument("doc", help="the .md document")
+    ch.add_argument("--json", action="store_true", help="machine-readable output on stdout")
+    ch.set_defaults(fn=cmd_composition)
+
     r = sub.add_parser("render", help="export a .drawio via the draw.io desktop CLI")
     r.add_argument("input")
     r.add_argument("--out", required=True)
@@ -363,6 +439,9 @@ def build_parser():
     r.add_argument("--scale", type=float)
     r.add_argument("--width", type=int)
     r.add_argument("--transparent", action="store_true")
+    r.add_argument("--no-regions", action="store_true",
+                   help="leave out the Participating patterns layer, which a render of the "
+                        "structure layer otherwise includes when the diagram has one")
     r.add_argument("--theme", default="light", choices=render_mod.THEMES,
                    help="SVG colour scheme: light (default), dark, or auto to follow the viewer")
     r.add_argument("--drawio-bin", help="path to the draw.io executable")
@@ -399,6 +478,7 @@ def build_parser():
     d = common(sub.add_parser("doctor", help="check how this skill is bound to the repository"))
     d.add_argument("--skill", help="check a sibling skill's contract instead of model's")
     d.add_argument("--near", help="resolve the binding file from here (default: cwd)")
+    d.add_argument("--doc", help="also say which of this document's boxes the link rules resolve")
     d.add_argument("--json", action="store_true")
     d.set_defaults(fn=cmd_doctor)
 

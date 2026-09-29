@@ -60,6 +60,13 @@ class Step:
     action: str = ""
     edge: str = ""           # edge id the step traverses, when it traverses one
     target: str = ""         # node id, when the step is a transition
+    # The participating pattern's scenario this step runs, `PAT-905 S1`, or `TBD <name>`
+    # for an open participating pattern. Actor and Target are where its flow enters and
+    # leaves.
+    uses: str = ""
+    # Role binding for a participation step (UML collaboration use): participating
+    # pattern's box -> this pattern's box, from `PAT-005 S1 (02=ABB-011)`.
+    binding: dict = field(default_factory=dict)
     attrs: dict = field(default_factory=dict)
 
 
@@ -74,6 +81,11 @@ class Scenario:
     key: str
     name: str = ""
     steps: list = field(default_factory=list)
+    # The declared boxes where the scenario's flow starts and finishes: its ports, or its
+    # start and end events. The start is the first step's actor; the finish is the last
+    # step's actor or target.
+    start: str = ""
+    finish: str = ""
     attrs: dict = field(default_factory=dict)
 
 

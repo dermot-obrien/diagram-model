@@ -62,7 +62,27 @@ DEFAULT_RULES = {
                                       # contradicts its target (gap with a target, etc.)
     "mapping_not_in_catalogue": "error",  # a mapping target absent from the catalogue
     "mapping_duplicates_node": "warn",    # a local node realises a block drawn beside it
+    # Composing patterns: a participation step, whose Uses cell runs another pattern's scenario.
+    "uses_invalid": "error",    # a Uses cell that is neither `<ID> <KEY>` nor `TBD <name>`
+    "uses_step_endpoints": "error",  # a Uses step without an Actor or a Target
+    "participant_missing": "error",   # no document for the pattern a Uses cell names
+    "participant_scenario_missing": "error",# the participating pattern has no such scenario
+    "participant_ambiguous": "warn",        # more than one document claims the id
+    "composition_cycle": "error",           # a pattern reaching itself through Uses
+    "participant_join": "warn",             # the entry or exit box cannot be matched
+    "participant_open": "warn",             # an open participating pattern, `TBD`
+    "participant_unapproved": "error",      # an approved pattern over an unapproved one
+    "participant_binding": "error",         # a role binding naming a box that is not there,
+                                            # or one box twice on a side
+    "link_unresolved": "warn",        # a link rule matches an id but its page is not found
+    "scenario_start_finish": "error", # a declared Start or Finish the steps do not bear out
+    "step_uses_mismatch": "warn",     # the document's Uses differs from the diagram's
 }
+
+# A pattern's identifier, as a Uses cell names it: `PAT-905 S1`.
+DEFAULT_PATTERN_ID = r"[A-Z]{2,5}-[0-9]{3}"
+# Front matter `status` values that count as approved for the composition's approval gate.
+DEFAULT_APPROVED = ("Final", "Approved", "Active", "Published")
 
 # How a local element relates to the catalogue entry it maps to.
 MAPPING_RELATIONSHIPS = ("realises", "partial", "gap")
@@ -86,7 +106,7 @@ class ScenarioSpec:
     heading_pattern: str = r"^(S\d+)\b[\s:.-]*(.*)$"
     columns: dict = field(default_factory=lambda: {
         "step": "Step", "actor": "Actor", "action": "Action", "edge": "Interface",
-        "target": "Target",
+        "target": "Target", "uses": "Uses",
     })
 
 
@@ -103,6 +123,25 @@ class MappingSpec:
     columns: dict = field(default_factory=lambda: {
         "id": "Local ID", "maps_to": "Maps To", "relationship": "Relationship",
     })
+
+
+LINK_TARGETS = ("new", "same")
+
+
+@dataclass
+class LinkRule:
+    """How an identifier becomes a link to its page. `match` is a full-match regex on the
+    id; `locate` an optional glob, relative to the binding file, with `{id}` substituted,
+    whose first match supplies `{located}` and `{rel}`; `href` the template; `target`
+    "new" or "same", or "" to take `[model] link_target`."""
+    match: str
+    href: str
+    locate: str = ""
+    target: str = ""
+
+    @property
+    def match_re(self):
+        return re.compile(self.match)
 
 
 @dataclass
@@ -144,8 +183,19 @@ class Config:
     tables: list = field(default_factory=list)
     scenarios: ScenarioSpec = field(default_factory=ScenarioSpec)
     mapping: MappingSpec = field(default_factory=MappingSpec)
+    # composing patterns: where participating patterns are found, what their ids look like, and
+    # which front matter statuses count as approved
+    patterns_root: str = ""
+    patterns_root_from: str = ""   # which binding supplied it, for doctor and messages
+    pattern_id: str = DEFAULT_PATTERN_ID
+    approved_statuses: tuple = DEFAULT_APPROVED
     # validation
     catalogues: list = field(default_factory=list)
+    # links from a declared identifier to its page: [model] link_site and link_target, and
+    # the [[links]] rules, tried in order
+    link_site: str = ""
+    link_target: str = "new"
+    links: list = field(default_factory=list)
     rules: dict = field(default_factory=lambda: dict(DEFAULT_RULES))
     # draw.io styling, passed through to the writer
     style: dict = field(default_factory=dict)
@@ -312,6 +362,25 @@ def load(path: str | None, near: str | None = None) -> Config:
         except re.error as ex:
             raise SystemExit(f"  ! {path}: local_pattern is not a valid regex: {ex}")
     cfg.local_attr = m.get("local_attr", cfg.local_attr)
+    # Composing patterns. [model] wins; [suite.pattern] is read as a fallback, so a
+    # repository that binds only the pattern skill need say it once.
+    pat = cfg.suite.get("pattern", {}) if isinstance(cfg.suite.get("pattern"), dict) else {}
+    for src, val in (("model.patterns_root", m.get("patterns_root")),
+                     ("suite.pattern.patternsRoot", pat.get("patternsRoot")),
+                     ("suite.pattern.outputDir", pat.get("outputDir"))):
+        if val:
+            cfg.patterns_root, cfg.patterns_root_from = str(val), src
+            break
+    cfg.pattern_id = str(m.get("pattern_id") or cfg.pattern_id)
+    try:
+        re.compile(cfg.pattern_id)
+    except re.error as ex:
+        raise SystemExit(f"  ! {path}: pattern_id is not a valid regex: {ex}")
+    approved = m.get("approved_statuses", pat.get("approvedStatuses"))
+    if approved is not None:
+        if isinstance(approved, str):
+            approved = [a.strip() for a in approved.split(",")]
+        cfg.approved_statuses = tuple(str(a) for a in approved if str(a).strip())
 
     md = raw.get("markdown", {})
     cfg.tables = [TableSpec(section=t["section"], entity=t.get("entity", "node"),
@@ -343,6 +412,25 @@ def load(path: str | None, near: str | None = None) -> Config:
         if v not in SEVERITIES:
             raise SystemExit(f"  ! rule '{k}' has severity '{v}'; expected one of {SEVERITIES}")
         cfg.rules[k] = v
+
+    cfg.link_site = str(m.get("link_site", "") or "")
+    cfg.link_target = str(m.get("link_target", "new") or "new")
+    if cfg.link_target not in LINK_TARGETS:
+        raise SystemExit(f"  ! {path}: [model] link_target is '{cfg.link_target}'; expected "
+                         f"one of {', '.join(LINK_TARGETS)}")
+    for i, r in enumerate(raw.get("links", []) or [], 1):
+        if not isinstance(r, dict) or not r.get("match") or not r.get("href"):
+            raise SystemExit(f"  ! {path}: [[links]] entry {i} needs match and href")
+        try:
+            re.compile(str(r["match"]))
+        except re.error as ex:
+            raise SystemExit(f"  ! {path}: [[links]] entry {i} match is not a valid regex: {ex}")
+        target = str(r.get("target", "") or "")
+        if target and target not in LINK_TARGETS:
+            raise SystemExit(f"  ! {path}: [[links]] entry {i} target is '{target}'; expected "
+                             f"one of {', '.join(LINK_TARGETS)}")
+        cfg.links.append(LinkRule(match=str(r["match"]), href=str(r["href"]),
+                                  locate=str(r.get("locate", "") or ""), target=target))
 
     cfg.style = raw.get("style", {})
     return cfg

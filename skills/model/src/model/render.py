@@ -82,6 +82,21 @@ def resolve_layers(path, names) -> list:
     return idx
 
 
+def with_regions(path, names, regions=True) -> list:
+    """The layers to render: `names`, plus the participating patterns' regions right
+    after the structure layer when the structure is among them, the diagram has a
+    regions layer, and `regions` is true. Without names, every layer renders anyway."""
+    from .drawio import REGIONS_LAYER
+    names = list(names or [])
+    if not names or not regions or REGIONS_LAYER in names:
+        return names
+    have = layer_names(path)
+    if REGIONS_LAYER not in have or not have or have[0] not in names:
+        return names
+    i = names.index(have[0]) + 1
+    return names[:i] + [REGIONS_LAYER] + names[i:]
+
+
 _CAPS = {}
 
 
