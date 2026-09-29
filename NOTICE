@@ -20,7 +20,7 @@ Apache-2.0 (code).
 scripts/validate-skills.mjs is taken from AI-Assisted Work, scripts/validate-skills.mjs,
 at commit 86fd83c1cd737a2d0d29942209c9fe2b0b226e93, with one comment changed.
 scripts/validate-bundle.mjs and scripts/vendor/bundle.schema.json are taken from
-AI-Assisted Work, scripts/ and schemas/, at commit 0ec3f36, unchanged; see
+AI-Assisted Work, scripts/ and schemas/, at commit 793aca9, unchanged; see
 scripts/vendor/README.md.
 
 The history of the work before extraction is the commit history of that path
