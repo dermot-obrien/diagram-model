@@ -227,9 +227,22 @@ def cmd_rename(a) -> int:
 def cmd_scan(a) -> int:
     if not os.path.isdir(a.folder):
         return _err(f"  ! {a.folder}: not a folder")
-    cfg = config_mod.load(a.config, near=a.folder)
+    # Each document is read with the binding file nearest to it, so a scan from above several
+    # repositories, or above the binding file, reads every model as its own repository binds
+    # it. An explicit --config applies to every document.
+    shared = config_mod.load(a.config, near=a.folder) if a.config else None
+    loaded: dict[str, object] = {}
+
+    def cfg_for(doc: str):
+        if shared is not None:
+            return shared
+        folder = os.path.dirname(os.path.abspath(doc))
+        if folder not in loaded:
+            loaded[folder] = config_mod.load(None, near=folder)
+        return loaded[folder]
+
     found, skipped = scan_mod.find(a.folder, recursive=a.recursive)
-    entries = [scan_mod.inspect(p, block, cfg) for p, block in found]
+    entries = [scan_mod.inspect(p, block, cfg_for(p)) for p, block in found]
     worst = validate_mod.worst([validate_mod.Finding("", e["result"], "")
                                 for e in entries if e["result"] != "ok"])
     if a.json:

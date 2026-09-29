@@ -7,7 +7,7 @@ validates one against another, and renders the diagram.
 
 Nothing here knows what the boxes mean. Domain vocabulary lives in the workspace's binding file.
 """
-__version__ = "0.8.1"
+__version__ = "0.8.2"
 
 from .schema import Model, Node, Edge, Group, Scenario, Step  # noqa: F401
 from . import config, drawio, markdown, serial, validate, render, sync, scan, animate, composition  # noqa: F401

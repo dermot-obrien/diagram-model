@@ -4,6 +4,12 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Semantic versions, with the contract defined as: MAJOR for a changed skill `name`, a removed command, a changed CLI interface or a changed model schema; MINOR for new commands, adapters or rules; PATCH for wording and fixes.
 
+## [0.8.2] - 2026-09-30
+
+### Fixed
+
+- `scan` reads each document with the binding file nearest to that document, not the one nearest the scanned folder. A scan started above a binding file, or across several repositories, no longer reports "is not an identified node" for boxes its own binding identifies. `--config` still applies one binding file to every document.
+
 ## [0.8.1] - 2026-09-30
 
 ### Added

@@ -140,6 +140,8 @@ model scan [--config CONFIG] [--recursive] [--json] [--fail-on {error,warn,never
 | `--json` | `folder`, `result`, `models` (each with `doc`, `diagram`, `summary`, `localIds`, `deckTagged`, `views`, `result`, `counts`, `findings`) and `skipped` |
 | `--fail-on` | As for `validate`, over all models |
 
+Each document is read with the binding file nearest to it, so one scan can start above a binding file, or across several repositories, and every model is checked as its own repository binds it. `--config` applies one binding file to every document instead.
+
 Prints one line per model, `result doc + diagram: summary; N error(s), N warning(s), N view(s)`, with up to 20 findings each, then the number of models and of documents that declare no diagram.
 
 ## composition
