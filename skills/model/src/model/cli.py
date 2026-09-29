@@ -400,7 +400,7 @@ def build_parser():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def common(sp):
-        sp.add_argument("--config", help="path to model.toml (default: nearest one upward)")
+        sp.add_argument("--config", help="the binding file, .agents/skill-bindings.toml or model.toml (default: the nearest one upward)")
         return sp
 
     e = common(sub.add_parser("extract", help="read a model out of any representation"))

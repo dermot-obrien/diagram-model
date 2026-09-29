@@ -137,7 +137,7 @@ def front_matter(raw: str):
 
 def read_meta(path) -> dict:
     """Front matter only, for callers that need to know what a document declares."""
-    with open(path, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8-sig") as fh:
         return front_matter(fh.read())[0]
 
 
@@ -147,7 +147,7 @@ def _label(text: str, ident: str) -> str:
 
 
 def read(path, cfg) -> Model:
-    with open(path, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8-sig") as fh:
         meta, raw = front_matter(fh.read())
     body = _clean(raw)
 

@@ -72,7 +72,7 @@ class Doc:
 def _h1(path, limit=65536) -> str:
     """The text of a document's first H1, outside front matter and code fences."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8-sig") as fh:
             raw = fh.read(limit)
     except (OSError, UnicodeDecodeError):
         return ""

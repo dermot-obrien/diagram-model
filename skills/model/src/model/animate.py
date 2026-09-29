@@ -290,6 +290,10 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
     areas = region_boxes(diagram_path)
     if areas:
         frames.append(bounds({**boxes, **areas}))
+    # draw.io's export adds a one-unit border for the outer shapes' strokes, so a view of
+    # boxes spanning 900x80 is 902x82. On a wide, flat diagram that alone moves the
+    # proportions past the tolerance, so each extent is also tried with that border.
+    frames += [(f[0] - 1, f[1] - 1, f[2] + 1, f[3] + 1) for f in frames]
 
     def off(f):
         fw, fh = max(f[2] - f[0], 1), max(f[3] - f[1], 1)

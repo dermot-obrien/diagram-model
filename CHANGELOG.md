@@ -4,6 +4,20 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Semantic versions, with the contract defined as: MAJOR for a changed skill `name`, a removed command, a changed CLI interface or a changed model schema; MINOR for new commands, adapters or rules; PATCH for wording and fixes.
 
+## [0.8.1] - 2026-09-30
+
+### Added
+
+- User documentation in `docs/`: a quick start, run end to end on Windows in PowerShell and Git Bash, from an empty folder to a checked diagram, a rendered view and a walkthrough; concepts; a configuration reference of every binding key, front matter key and environment variable with its default and precedence; a command reference of every command and flag; troubleshooting keyed to each message and rule id; and the examples. The README keeps installation, a short quick start and an index of the docs, with the install folders set out per agent. `SKILL.md` links the references.
+
+### Fixed
+
+- With no binding file, `node_id_attrs` defaulted to `id`, the attribute draw.io itself uses on an `<object>`, so `emit --to drawio` wrote a diagram with a duplicate attribute that no XML parser reads, and a diagram could not have been read with that default either. The default is now `node_id`.
+- A document saved with a UTF-8 byte order mark, as Windows PowerShell 5.1 writes one, had its front matter ignored, so its declared diagram, title and status were silently lost. Documents are read with the mark stripped.
+- `animate` refused a freshly emitted diagram whose boxes sit in one row: draw.io's export adds a one-unit border for the outer strokes, and on a wide, flat view that alone moved the proportions past the tolerance. The border is now allowed for.
+- `--config` help named `model.toml`; it names the binding file.
+- The README's worked example passed `--against /dev/null`, which fails; its subtree install put the whole repository, not the skill, under the prefix; and its example catalogue path resolved inside `.agents/`. All three are corrected in the docs.
+
 ## [0.8.0] - 2026-09-30
 
 ### Added

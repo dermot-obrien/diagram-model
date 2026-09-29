@@ -180,6 +180,26 @@ class BuildTests(Base):
         self.assertIn("would not line up", str(cm.exception))
 
 
+class ExportBorderTests(Base):
+    """draw.io's export adds a one-unit border for the outer strokes: a flat diagram whose
+    boxes span 1000x80 renders at 1002x82, which is past the tolerance unless the border
+    is allowed for."""
+
+    def setUp(self):
+        super().setUp()
+        flat = (DIAGRAM.replace('width="1000" height="500"', 'width="1000" height="80"')
+                .replace('x="100" y="100" width="200"', 'x="100" y="0" width="200"')
+                .replace('x="600" y="100" width="300" height="300"',
+                         'x="600" y="0" width="300" height="80"')
+                .replace('x="50" y="50" width="200"', 'x="50" y="0" width="200"'))
+        self.dia = self.write("components.drawio", flat)
+        self.image = self.write_bytes("structure.png", png(1002, 82))
+
+    def test_a_flat_view_with_the_export_border_lines_up(self):
+        d = self.build()
+        self.assertEqual(d["nodes"]["02"]["box"], [651.0, 1.0, 200.0, 80.0])
+
+
 class PageTests(Base):
     def test_page_is_standalone(self):
         out = os.path.join(self.dir, "scenarios.html")

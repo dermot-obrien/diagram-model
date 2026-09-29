@@ -5,9 +5,9 @@ Markdown tables, draw.io, JSON and YAML are projections of the same boxes-and-li
 model. This package extracts a model from any of them, emits it to any of them,
 validates one against another, and renders the diagram.
 
-Nothing here knows what the boxes mean. Domain vocabulary lives in `model.toml`.
+Nothing here knows what the boxes mean. Domain vocabulary lives in the workspace's binding file.
 """
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 from .schema import Model, Node, Edge, Group, Scenario, Step  # noqa: F401
 from . import config, drawio, markdown, serial, validate, render, sync, scan, animate, composition  # noqa: F401

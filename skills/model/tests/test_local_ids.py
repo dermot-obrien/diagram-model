@@ -129,7 +129,56 @@ class ConfigTests(Base):
     def test_no_prefix_means_no_local_ids(self):
         cfg = config.Config()
         self.assertFalse(cfg.is_local("01"))
-        self.assertEqual(cfg.node_attrs, ("id",))
+        self.assertEqual(cfg.node_attrs, ("node_id",))
+
+
+DOC_ZERO = textwrap.dedent("""\
+    # M
+
+    ## Components
+
+    | Component | Group |
+    |---|---|
+    | WEB Storefront | edge |
+    | API Orders | core |
+
+    ## Interfaces
+
+    | Interface | Provider | Consumer | Purpose |
+    |---|---|---|---|
+    | IF1 | WEB | API | place an order |
+    """)
+
+
+class ZeroConfigTests(unittest.TestCase):
+    def test_emit_and_read_back_with_no_binding_file(self):
+        d = tempfile.mkdtemp()
+        try:
+            doc = os.path.join(d, "doc.md")
+            with open(doc, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(DOC_ZERO)
+            cfg = config.Config(tables=config.default_config().tables)
+            dia = os.path.join(d, "components.drawio")
+            drawio.write(markdown.read(doc, cfg), dia, cfg)
+            back = drawio.read(dia, cfg)
+            self.assertEqual(back.node_ids(), {"WEB", "API"})
+            self.assertEqual([(e.source, e.target) for e in back.edges], [("WEB", "API")])
+            self.assertEqual(validate.check(markdown.read(doc, cfg), cfg, back), [])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_front_matter_is_read_after_a_byte_order_mark(self):
+        # Windows PowerShell 5.1 writes UTF-8 with a BOM, which hid the front matter.
+        d = tempfile.mkdtemp()
+        try:
+            doc = os.path.join(d, "doc.md")
+            with open(doc, "w", encoding="utf-8-sig", newline="\n") as fh:
+                fh.write("---\nmodel:\n  diagram: components.drawio\n---\n\n" + DOC_ZERO)
+            self.assertEqual(scan.declared(doc), {"diagram": "components.drawio"})
+            self.assertEqual(markdown.read(doc, config.default_config()).node_ids(),
+                             {"WEB", "API"})
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 class PlainNumberTests(Base):
