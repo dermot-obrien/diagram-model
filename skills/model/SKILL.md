@@ -4,7 +4,7 @@ description: Treat a diagram and a document as two views of one model of boxes a
 license: CC-BY-4.0 AND Apache-2.0. Content under CC BY 4.0, code under Apache-2.0; see LICENSE and NOTICE.
 compatibility: Python 3.9 or newer; Python 3.11 or newer to read a binding file. Rendering needs draw.io desktop installed (the installed build, not the portable exe). Reading YAML needs PyYAML; writing YAML needs nothing.
 metadata:
-  version: "0.8.0"
+  version: "0.8.1"
   homepage: https://github.com/dermot-obrien/diagram-model
   x-skill-requires: ""
   x-derived-from: "https://github.com/dermot-obrien/ai-assisted-work/tree/ac5c7ecfc3f7872737b5760906350efaa4441470/skills/model"
@@ -36,15 +36,17 @@ python bin/model.py extract <file>   --format json|yaml|csv [--out FILE]
 python bin/model.py emit    <file>   --to drawio|markdown|json|yaml|csv --out FILE [--force]
 python bin/model.py validate <file>  [--against OTHER] [--json] [--fail-on error|warn|never]
 python bin/model.py composition <doc> [--json]
-python bin/model.py sync <doc> <drawio> [--prune] [--dry-run] [--adopt]
+python bin/model.py sync <doc> <drawio> [--prune] [--dry-run] [--adopt] [--json]
 python bin/model.py rename  <doc> OLD NEW [--drawio FILE] [--dry-run]
 python bin/model.py scan    <folder> [--recursive] [--json] [--fail-on error|warn|never]
-python bin/model.py render  <drawio> --out FILE [--format svg|png|pdf] [--layer NAME ...] [--theme light|dark|auto] [--no-regions]
+python bin/model.py render  <drawio> --out FILE [--format svg|png|pdf|jpg] [--layer NAME ...] [--theme light|dark|auto] [--no-regions] [--transparent] [--scale N] [--width PX] [--drawio-bin PATH] [--timeout S]
 python bin/model.py layers  <drawio> [--json]
 python bin/model.py animate <doc>    [--out FILE] [--image PNG|SVG] [--render auto|always|never] [--accent #RRGGBB] [--interval S] [--force]
 python bin/model.py stamp   <image>  --diagram DRAWIO [--layer NAME ...] | --check
 python bin/model.py drawio           # where draw.io desktop is; exit 1 if it is not installed
 ```
+
+Every command that reads a binding file takes `--config FILE`. The [command reference](https://github.com/dermot-obrien/diagram-model/blob/main/docs/commands.md) has every flag, and [troubleshooting](https://github.com/dermot-obrien/diagram-model/blob/main/docs/troubleshooting.md) every message and rule with its fix.
 
 `extract`, `emit` and `validate` take any representation and work it out from the extension.
 
@@ -188,6 +190,8 @@ Run `doctor` before anything else. It resolves every binding to an absolute path
 A path binding may carry a `{placeholder}`, such as `planning/{quarter}/basis.csv`, when one binding covers many runs. Only the skill that owns the placeholder can fill it, so `doctor` checks the directory in front of the first placeholder and leaves the rest to that skill.
 
 Relative paths anchor to the directory holding the binding file, never to the working directory, so a binding means the same thing wherever it is run from. `bindingsVersion` is refused if its major is one this skill does not understand: a silently misread binding is worse than a stopped run.
+
+With no binding file, identifiers go in the draw.io attributes `node_id` and `edge_id`. The [configuration reference](https://github.com/dermot-obrien/diagram-model/blob/main/docs/configuration.md) lists every key with its default.
 
 It declares the draw.io attribute names, the Markdown table contract as section and column names, optional catalogue files to check identifiers against, each with an optional `level` of `conceptual`, `logical` or `physical` for the derived abstraction, and a severity for each rule. `examples/model.toml` is a complete worked example. With no config at all, conventional headings such as `## Components` and `## Interfaces` work out of the box.
 

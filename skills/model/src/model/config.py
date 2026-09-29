@@ -169,7 +169,9 @@ KIND_LEVELS = {
 @dataclass
 class Config:
     # draw.io attribute names
-    node_id_attrs: tuple = ("id",)
+    # Not "id": draw.io owns that attribute on an <object>, so an identifier held there
+    # could be neither written beside the cell id nor read back.
+    node_id_attrs: tuple = ("node_id",)
     edge_id_attr: str = "edge_id"
     group_attr: str = "group"
     kind_attr: str = "kind"

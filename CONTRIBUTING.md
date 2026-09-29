@@ -27,9 +27,49 @@ python -m unittest discover -s skills/model/tests
 
 Keep the skill generic. It is used by many organisations, so nothing in it may name or imply one: no organisation names, internal hosts, identifiers or brand palettes in code, tests or examples. An organisation's own vocabulary, catalogue and layout belong in its own repository, bound through its own `.agents/skill-bindings.toml`.
 
-Record a user-visible change in `CHANGELOG.md` and raise the version in `skills/model/SKILL.md` (`metadata.version`), `skills/model/pyproject.toml`, `skills/model/src/model/__init__.py` and the skill's entry in `.claude-plugin/marketplace.json` together.
+Record a user-visible change in `CHANGELOG.md` and raise the version in `skills/model/SKILL.md` (`metadata.version`), `skills/model/pyproject.toml`, `skills/model/src/model/__init__.py`, the skill's entry in `.claude-plugin/marketplace.json` and its `version` and `purl` in `bundle.json` together.
 
 `skills-ref` is the Agent Skills reference validator; the README's [Agent Skills conformance](README.md#agent-skills-conformance) section says how to install it. CI runs both, and fails a `SKILL.md` over 500 lines or about 5,000 tokens: move detail into a file under the skill and link it.
+
+## Repository layout
+
+```text
+diagram-model/
+├── skills/model/              the skill: the only directory an installer copies
+│   ├── SKILL.md               what the agent reads, Agent Skills format
+│   ├── references/            detail SKILL.md links to, loaded when needed
+│   ├── examples/              the worked example and its binding file
+│   ├── LICENSE, LICENSES/, NOTICE   carried inside so a copied directory is complete
+│   ├── pyproject.toml         optional pip install
+│   ├── bin/model.py           entry point, runs from a copied directory
+│   ├── src/model/
+│   │   ├── schema.py          the canonical model, no domain vocabulary
+│   │   ├── config.py          the binding file
+│   │   ├── markdown.py        GFM tables, both directions
+│   │   ├── drawio.py          mxGraph XML, both directions
+│   │   ├── serial.py          JSON, YAML, CSV
+│   │   ├── bindings.py        resolve and check bindings; find other skills
+│   │   ├── validate.py        rules and severities
+│   │   ├── sync.py            reconcile a diagram with its document, keeping geometry
+│   │   ├── render.py          draw.io CLI, with capability probing, and render records
+│   │   ├── animate.py         standalone HTML walkthrough of the scenarios
+│   │   ├── composition.py     composite patterns
+│   │   ├── links.py           links from identifiers to their pages
+│   │   ├── scan.py            the models in a folder
+│   │   └── cli.py
+│   └── tests/
+├── docs/                      the user documentation
+├── .claude-plugin/            the Claude Code plugin and its one-plugin marketplace
+├── bundle.json                the bundle manifest
+├── scripts/                   the skill and bundle validators CI runs
+├── LICENSE, LICENSES/, NOTICE, REUSE.toml
+├── CHANGELOG.md
+└── README.md
+```
+
+## Documentation
+
+`SKILL.md` is for the agent and stays within the specification's size guidance: put detail in `references/` or in `docs/`, and link to it. `docs/` is for people and is not installed with the skill. When a command, flag, binding key, message or rule changes, update [docs/commands.md](docs/commands.md), [docs/configuration.md](docs/configuration.md) or [docs/troubleshooting.md](docs/troubleshooting.md) in the same pull request, and re-run the [quick start](docs/quick-start.md) if its output could change. A change under `docs/` alone needs no version bump.
 
 ## Releases
 
