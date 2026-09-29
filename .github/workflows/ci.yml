@@ -21,6 +21,11 @@ jobs:
       # Zero-dependency on purpose, so this job needs no install step.
       - name: Validate skills against the agentskills.io spec
         run: node scripts/validate-skills.mjs skills
+      - name: Validate bundle.json against the bundle schema and the skills
+        run: node scripts/validate-bundle.mjs .
+      # An installer runs each skill's check after installing it; this runs it the same way.
+      - name: The post-install check passes in an empty workspace
+        run: mkdir -p /tmp/ws && node scripts/validate-bundle.mjs --run-checks /tmp/ws --skills skills .
 
   model:
     name: model tests (Python ${{ matrix.python }}, ${{ matrix.os }})
