@@ -62,7 +62,23 @@ DEFAULT_RULES = {
                                       # contradicts its target (gap with a target, etc.)
     "mapping_not_in_catalogue": "error",  # a mapping target absent from the catalogue
     "mapping_duplicates_node": "warn",    # a local node realises a block drawn beside it
+    # Pattern chaining: a scenario step whose Uses cell calls another pattern's scenario.
+    "chain_uses_invalid": "error",    # a Uses cell that is neither `<ID> <KEY>` nor `TBD <name>`
+    "chain_step_endpoints": "error",  # a Uses step without an Actor or a Target
+    "chain_child_missing": "error",   # no document for the pattern a Uses cell names
+    "chain_scenario_missing": "error",# the child has no scenario with that key
+    "chain_ambiguous": "warn",        # more than one document claims the child's id
+    "chain_cycle": "error",           # a pattern reaching itself through Uses
+    "chain_join": "warn",             # the child's entry or exit box cannot be matched
+    "chain_open": "warn",             # a `TBD` child flow, not yet written
+    "chain_unapproved": "error",      # an approved pattern resting on an unapproved child
+    "step_uses_mismatch": "warn",     # the document's Uses differs from the diagram's
 }
+
+# A pattern's identifier, as a Uses cell names it: `PAT-905 S1`.
+DEFAULT_PATTERN_ID = r"[A-Z]{2,5}-[0-9]{3}"
+# Front matter `status` values that count as approved for the chain's approval gate.
+DEFAULT_APPROVED = ("Final", "Approved", "Active", "Published")
 
 # How a local element relates to the catalogue entry it maps to.
 MAPPING_RELATIONSHIPS = ("realises", "partial", "gap")
@@ -86,7 +102,7 @@ class ScenarioSpec:
     heading_pattern: str = r"^(S\d+)\b[\s:.-]*(.*)$"
     columns: dict = field(default_factory=lambda: {
         "step": "Step", "actor": "Actor", "action": "Action", "edge": "Interface",
-        "target": "Target",
+        "target": "Target", "uses": "Uses",
     })
 
 
@@ -144,6 +160,12 @@ class Config:
     tables: list = field(default_factory=list)
     scenarios: ScenarioSpec = field(default_factory=ScenarioSpec)
     mapping: MappingSpec = field(default_factory=MappingSpec)
+    # pattern chaining: where child patterns are found, what their ids look like, and
+    # which front matter statuses count as approved
+    patterns_root: str = ""
+    patterns_root_from: str = ""   # which binding supplied it, for doctor and messages
+    pattern_id: str = DEFAULT_PATTERN_ID
+    approved_statuses: tuple = DEFAULT_APPROVED
     # validation
     catalogues: list = field(default_factory=list)
     rules: dict = field(default_factory=lambda: dict(DEFAULT_RULES))
@@ -312,6 +334,25 @@ def load(path: str | None, near: str | None = None) -> Config:
         except re.error as ex:
             raise SystemExit(f"  ! {path}: local_pattern is not a valid regex: {ex}")
     cfg.local_attr = m.get("local_attr", cfg.local_attr)
+    # Pattern chaining. [model] wins; [suite.pattern] is read as a fallback, so a
+    # repository that binds only the pattern skill need say it once.
+    pat = cfg.suite.get("pattern", {}) if isinstance(cfg.suite.get("pattern"), dict) else {}
+    for src, val in (("model.patterns_root", m.get("patterns_root")),
+                     ("suite.pattern.patternsRoot", pat.get("patternsRoot")),
+                     ("suite.pattern.outputDir", pat.get("outputDir"))):
+        if val:
+            cfg.patterns_root, cfg.patterns_root_from = str(val), src
+            break
+    cfg.pattern_id = str(m.get("pattern_id") or cfg.pattern_id)
+    try:
+        re.compile(cfg.pattern_id)
+    except re.error as ex:
+        raise SystemExit(f"  ! {path}: pattern_id is not a valid regex: {ex}")
+    approved = m.get("approved_statuses", pat.get("approvedStatuses"))
+    if approved is not None:
+        if isinstance(approved, str):
+            approved = [a.strip() for a in approved.split(",")]
+        cfg.approved_statuses = tuple(str(a) for a in approved if str(a).strip())
 
     md = raw.get("markdown", {})
     cfg.tables = [TableSpec(section=t["section"], entity=t.get("entity", "node"),

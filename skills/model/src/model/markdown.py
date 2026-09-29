@@ -285,11 +285,38 @@ def _read_scenarios(secs, cfg) -> list:
                     action=_get(row, spec.columns["action"]),
                     edge=_first_token(_get(row, spec.columns.get("edge", ""))),
                     target=_first_token(_get(row, spec.columns.get("target", ""))),
+                    uses=parse_uses(_get(row, spec.columns.get("uses", "")), cfg)[0]
+                    if spec.columns.get("uses") else "",
                 ))
         sc.steps.sort(key=lambda s: s.step)
         if sc.steps:
             out.append(sc)
     return out
+
+
+TBD_RE = re.compile(r"^TBD\b[\s:.-]*(.*)$", re.I)
+
+
+def parse_uses(text: str, cfg) -> tuple:
+    """A Uses cell as (normalised value, kind, pattern id, scenario key, name).
+
+    `PAT-905 S1 payment capture` is ("PAT-905 S1", "ref", "PAT-905", "S1", ""): trailing
+    text is prose and dropped. `TBD fraud scoring` is ("TBD fraud scoring", "tbd", "", "",
+    "fraud scoring"). An empty cell is ("", "", ...). Anything else keeps its text and is
+    "invalid", so validation can name it rather than the row being read as no call-out.
+    """
+    t = re.sub(r"\s+", " ", (text or "").strip().strip("`").strip())
+    if not t or t in ("-", "\u2013", "\u2014"):
+        return "", "", "", "", ""
+    m = TBD_RE.match(t)
+    if m:
+        name = m.group(1).strip()
+        return (f"TBD {name}".strip(), "tbd", "", "", name)
+    pid = getattr(cfg, "pattern_id", "") or r"[A-Z]{2,5}-[0-9]{3}"
+    m = re.match(r"^(" + pid + r")(?![A-Za-z0-9])[\s:,-]*([A-Za-z0-9_]+)?", t)
+    if m and m.group(2):
+        return f"{m.group(1)} {m.group(2)}", "ref", m.group(1), m.group(2), ""
+    return t, "invalid", "", "", ""
 
 
 def _first_token(s: str) -> str:
@@ -327,11 +354,18 @@ def write(m: Model, path, cfg) -> None:
     if m.scenarios:
         sc_cols = [cfg.scenarios.columns["step"], cfg.scenarios.columns["actor"],
                    cfg.scenarios.columns["action"], cfg.scenarios.columns.get("edge", "Edge")]
+        chained = any(st.uses for sc in m.scenarios for st in sc.steps)
+        if chained:
+            sc_cols += [cfg.scenarios.columns.get("target") or "Target",
+                        cfg.scenarios.columns.get("uses") or "Uses"]
         parts += [f"## {cfg.scenarios.section}", ""]
         for sc in m.scenarios:
             parts += [f"### {sc.key} {sc.name}".rstrip(), "", _row(sc_cols), _sep(sc_cols)]
             for st in sc.steps:
-                parts.append(_row([str(st.step), st.actor, st.action, st.edge]))
+                vals = [str(st.step), st.actor, st.action, st.edge]
+                if chained:
+                    vals += [st.target, st.uses]
+                parts.append(_row(vals))
             parts.append("")
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(parts).rstrip() + "\n")

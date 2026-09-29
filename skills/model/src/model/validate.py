@@ -294,9 +294,16 @@ def mapping(m: Model, cfg) -> list:
     return out
 
 
+def chain(m: Model, cfg) -> list:
+    """Scenario steps that call another pattern's scenario: see chain.py. Nothing is read
+    for a document without a Uses column."""
+    from . import chain as chain_mod
+    return chain_mod.findings(m, cfg)
+
+
 def check(doc: Model, cfg, diagram: Model = None) -> list:
     """Every rule that applies to a document, and to its diagram when there is one."""
-    findings = structural(doc, cfg) + catalogue(doc, cfg) + mapping(doc, cfg)
+    findings = structural(doc, cfg) + catalogue(doc, cfg) + mapping(doc, cfg) + chain(doc, cfg)
     if diagram is not None:
         findings += [f for f in structural(diagram, cfg)
                      if f.rule in ("node_duplicate_id", "id_attr_mismatch",
@@ -333,6 +340,17 @@ def agreement(doc: Model, diagram: Model, cfg) -> list:
             _add(out, cfg, "step_endpoint_mismatch",
                  f"{e.id} is {e.source}->{e.target} in the document but "
                  f"{g.source}->{g.target} on the diagram", e.id)
+
+    # A call-out to another pattern: the overlay arrow carries it as `uses`.
+    g_scen = {s.key: {st.step: st for st in s.steps} for s in diagram.scenarios}
+    for sc in doc.scenarios:
+        drawn = g_scen.get(sc.key, {})
+        for st in sc.steps:
+            g = drawn.get(st.step)
+            if g is not None and (st.uses or g.uses) and st.uses != g.uses:
+                _add(out, cfg, "step_uses_mismatch",
+                     f"step {st.step} uses '{st.uses or '(none)'}' in the document but "
+                     f"'{g.uses or '(none)'}' on the diagram; run model sync", sc.key)
     return out
 
 

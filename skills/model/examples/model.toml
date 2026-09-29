@@ -5,6 +5,11 @@ node_id_attrs = ["node_id"]
 edge_id_attr  = "edge_id"
 group_attr    = "group"
 kind_attr     = "kind"
+# Optional. Where a scenario step's Uses finds the model it calls, what its id looks like,
+# and which front matter statuses the approval gate counts as approved.
+# patterns_root     = "patterns"
+# pattern_id        = '[A-Z]{2,5}-[0-9]{3}'
+# approved_statuses = ["Final", "Approved", "Active", "Published"]
 
 [[markdown.tables]]
 section    = "Components"
@@ -20,7 +25,7 @@ columns    = { id = "Interface", source = "Provider", consumer = "Consumer", tar
 
 [markdown.scenarios]
 section = "Scenarios"
-columns = { step = "Step", actor = "Actor", action = "Action", edge = "Interface", target = "Target" }
+columns = { step = "Step", actor = "Actor", action = "Action", edge = "Interface", target = "Target", uses = "Uses" }
 
 # Optional. Identifiers are checked against these, and `level` feeds the derived
 # abstraction that `validate` reports: conceptual, logical, physical or mixed.

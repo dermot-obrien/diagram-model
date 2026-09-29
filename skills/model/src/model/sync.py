@@ -25,7 +25,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from .drawio import (NODE_W, NODE_H, ROW_GAP, MARGIN, BADGE, OBJECT_TAGS, RESERVED,
-                     _strip_html)
+                     FLOW_USES_STYLE, _strip_html)
 
 ORPHAN_STYLE = "strokeColor=#DC2626;strokeWidth=3;dashed=1;"
 
@@ -369,6 +369,7 @@ def _append_overlay(root, sc, cfg, drawn_nodes, wanted, lyr, cell_of=None):
                                          "strokeColor=none;fontColor=#FFFFFF;fontStyle=1;")
     flow_style = cfg.style.get("flow", "edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;"
                                        "dashed=1;strokeWidth=2;strokeColor=#C25B54;")
+    uses_style = cfg.style.get("flow_uses", FLOW_USES_STYLE)
     used_on = {}
     for st in sc.steps:
         entry = drawn_nodes.get(st.actor)
@@ -390,15 +391,18 @@ def _append_overlay(root, sc, cfg, drawn_nodes, wanted, lyr, cell_of=None):
         if st.actor and st.target:
             obj = ET.SubElement(root, "object")
             obj.set("id", f"{sc.key}-flow-{st.step}")
-            obj.set("label", str(st.step))
+            obj.set("label", f"{st.step}: {st.uses}" if st.uses else str(st.step))
             obj.set("scenario", sc.key)
             obj.set("step", str(st.step))
             if st.edge:
                 obj.set(cfg.edge_id_attr, st.edge)
+            if st.uses:
+                obj.set("uses", st.uses)
             obj.set("from", st.actor)
             obj.set("to", st.target)
             mx = ET.SubElement(obj, "mxCell")
-            mx.set("style", flow_style); mx.set("edge", "1"); mx.set("parent", lyr)
+            mx.set("style", uses_style if st.uses else flow_style)
+            mx.set("edge", "1"); mx.set("parent", lyr)
             mx.set("source", cell_of.get(st.actor, st.actor))
             mx.set("target", cell_of.get(st.target, st.target))
             g = ET.SubElement(mx, "mxGeometry")

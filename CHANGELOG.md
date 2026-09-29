@@ -4,11 +4,18 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Semantic versions, with the contract defined as: MAJOR for a changed skill `name`, a removed command, a changed CLI interface or a changed model schema; MINOR for new commands, adapters or rules; PATCH for wording and fixes.
 
-## [Unreleased]
+## [0.8.0] - 2026-09-30
 
 ### Added
 
-- `bundle.json`, the bundle manifest DD-11 of AI-Assisted Work defines: the `model` skill at 0.7.0, its purl, its requirements (none), and `python bin/model.py doctor` as its post-install check, which already meets the contract (exit 0 when the bindings resolve, 1 with one line per problem). The marketplace is its `claude-plugin` adapter. The skill itself is unchanged, so its version is too.
+- Chaining. A scenario step's optional `Uses` cell calls a scenario of another model, `PAT-905 S1`, or marks a child flow not yet written, `TBD <name>`. The step stands for the whole child flow: its Actor and Target, both required, are where the child enters and leaves, and its Interface is optional. `Step.uses` carries it, serialised when set. Steps without Uses and documents without the column are unchanged.
+- The header is the scenario column contract's `uses`, default `Uses`. `[model]` gains `patterns_root`, `pattern_id` (default `[A-Z]{2,5}-[0-9]{3}`) and `approved_statuses` (default Final, Approved, Active, Published); `[suite.pattern] patternsRoot`, `approvedStatuses` and then `outputDir` are read when `[model]` sets none.
+- A child is a folder named `<ID>-<slug>` holding `index.md`, or, when no folder is named for the id, a document whose first H1 starts with it, found under the bound root or, unbound, in the folders above the parent document.
+- Rules `chain_uses_invalid`, `chain_step_endpoints`, `chain_child_missing`, `chain_scenario_missing`, `chain_cycle` and `chain_unapproved` (errors), and `chain_join`, `chain_open`, `chain_ambiguous` and `step_uses_mismatch` (warnings). The join check matches the child's first actor to the parent step's Actor, and its last step's actor or target to the parent step's Target, by catalogue id directly or through either document's Catalogue Mapping. The approval gate fails an approved parent that rests, at any depth, on an unapproved child or a `TBD`.
+- `model chain <doc> [--json]` prints the chain tree: each Uses step, the child's id, scenario and status, open TBDs, recursively, with cycles marked. `validate` prints a one-line summary and adds `chain` to `--json`. `doctor` reports the patterns root in use and the approved statuses, and fails on a bound root that does not exist.
+- draw.io: the overlay arrow of a Uses step carries `uses`, is labelled with the call and is drawn heavier and dash-dotted, overridable as `style.flow_uses`. `emit`, `sync` and `validate` handle it.
+- The walkthrough draws a Uses step as one dash-dotted arrow with a drill-in badge. The badge, a link beside the steps and the D key open the child's walkthrough at that scenario, by a relative link carrying the way back as `?back=`; the child shows a Back link, and B returns to the calling step. Any walkthrough opens at `#S1` or `#S1-3`. A TBD has a badge and no link. Still one file that opens from disk.
+- `bundle.json`, the bundle manifest DD-11 of AI-Assisted Work defines: the `model` skill, its purl, its requirements (none), and `python bin/model.py doctor` as its post-install check, which already meets the contract (exit 0 when the bindings resolve, 1 with one line per problem). The marketplace is its `claude-plugin` adapter.
 - CI validates `bundle.json` with `scripts/validate-bundle.mjs`, and runs the check in an empty workspace as an installer would. The validator and the schema are copies from AI-Assisted Work, in `scripts/` and `scripts/vendor/`, so CI needs no network.
 
 ## [0.7.0] - 2026-09-29

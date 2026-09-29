@@ -1,10 +1,10 @@
 ---
 name: model
-description: Treat a diagram and a document as two views of one model of boxes and lines. Extract a model from Markdown tables, draw.io, JSON or YAML; emit it to any of those; validate one representation against another to catch a re-pointed arrow or an undrawn row; and render draw.io layers to SVG, PNG or PDF. Use when asked to generate a diagram from a table, check a diagram matches its document, export a diagram, list a diagram's layers, or convert a model between formats.
+description: Treat a diagram and a document as two views of one model of boxes and lines. Extract a model from Markdown tables, draw.io, JSON or YAML; emit it to any of those; validate one representation against another to catch a re-pointed arrow or an undrawn row; and render draw.io layers to SVG, PNG or PDF. Use when asked to generate a diagram from a table, check a diagram matches its document, export a diagram, list a diagram's layers, convert a model between formats, or trace the child flows a scenario calls in other models.
 license: CC-BY-4.0 AND Apache-2.0. Content under CC BY 4.0, code under Apache-2.0; see LICENSE and NOTICE.
 compatibility: Python 3.9 or newer; Python 3.11 or newer to read a binding file. Rendering needs draw.io desktop installed (the installed build, not the portable exe). Reading YAML needs PyYAML; writing YAML needs nothing.
 metadata:
-  version: "0.7.0"
+  version: "0.8.0"
   homepage: https://github.com/dermot-obrien/diagram-model
   x-skill-requires: ""
   x-derived-from: "https://github.com/dermot-obrien/ai-assisted-work/tree/ac5c7ecfc3f7872737b5760906350efaa4441470/skills/model"
@@ -35,6 +35,7 @@ python bin/model.py doctor           [--skill NAME] [--json]
 python bin/model.py extract <file>   --format json|yaml|csv [--out FILE]
 python bin/model.py emit    <file>   --to drawio|markdown|json|yaml|csv --out FILE [--force]
 python bin/model.py validate <file>  [--against OTHER] [--json] [--fail-on error|warn|never]
+python bin/model.py chain   <doc>    [--json]
 python bin/model.py sync <doc> <drawio> [--prune] [--dry-run] [--adopt]
 python bin/model.py rename  <doc> OLD NEW [--drawio FILE] [--dry-run]
 python bin/model.py scan    <folder> [--recursive] [--json] [--fail-on error|warn|never]
@@ -153,6 +154,36 @@ The structure view it draws on is the one thing draw.io is needed for, and draw.
 
 It validates first and stops rather than guesses. A step with no narrative, an endpoint with no shape on the structure layer, a scenario in the document but not on the diagram or the reverse, or a rendered view whose proportions differ from the shapes' extent is an error that names every case. The last usually means an edge label or waypoint lies outside the shapes; a background rectangle enclosing the structure layer, used as a frame, fixes it.
 
+### Chaining one model's scenario into another's
+
+A step can stand for a whole scenario of another model: a child flow. Add a `Uses` column to the step table and name the child's id and scenario key, `PAT-905 S1`, or write `TBD <name>` for a child flow not yet written. Trailing text after the key is prose and ignored.
+
+| Step | Actor | Target | Action | Interface | Uses |
+|---:|---|---|---|---|---|
+| 2 | ABB-901 Order service | ABB-901 Order service | take payment | | PAT-905 S1 |
+
+A step with Uses needs an Actor and a Target, the boxes where the child flow enters and leaves; its Interface is optional. Steps without Uses, and documents without the column, behave as before. The header comes from the scenario column contract (`uses = "Uses"`), and a child's id must match `pattern_id`, by default `[A-Z]{2,5}-[0-9]{3}`.
+
+`validate` resolves each call and says, by rule:
+
+| Rule | Severity | When |
+|---|---|---|
+| `chain_uses_invalid` | error | The cell is neither `<ID> <KEY>` nor `TBD <name>` |
+| `chain_step_endpoints` | error | A Uses step without an Actor or a Target |
+| `chain_child_missing`, `chain_scenario_missing` | error | No document for the id, or no scenario with the key |
+| `chain_cycle` | error | A model reaching itself through Uses, directly or transitively |
+| `chain_join` | warn | The child's first actor is not the parent step's Actor, or neither its last step's actor nor its target is the parent step's Target. Boxes match when they share a catalogue id, directly or through either document's Catalogue Mapping; local ids never match across documents |
+| `chain_open` | warn | A `TBD` child flow, listed until it is written |
+| `chain_unapproved` | error | The parent's front matter `status` is approved but a child, at any depth, is not, or a `TBD` remains |
+| `chain_ambiguous` | warn | Two documents claim one id; the first is used |
+| `step_uses_mismatch` | warn | The diagram's overlay arrow carries a different Uses; run `sync` |
+
+A child is a folder whose name starts with `<ID>-` holding `index.md`, or, when no folder is named for the id, a document whose first H1 starts with it. It is looked for under `[model] patterns_root`, else `[suite.pattern] patternsRoot`, else `[suite.pattern] outputDir`, to any depth. With none bound, each folder from the parent document's upward is searched two levels deep, stopping at the repository root. `approved_statuses` in `[model]`, or `approvedStatuses` in `[suite.pattern]`, sets which statuses the gate counts as approved, by default Final, Approved, Active and Published. `doctor` prints the root in use.
+
+`chain <doc>` prints the tree: each Uses step, the child's id, scenario and status, open TBDs, recursively, with cycles marked. `--json` gives the same as data. `validate` adds a one-line summary.
+
+On the diagram, the overlay arrow of a Uses step carries `uses="PAT-905 S1"`, is labelled `2: PAT-905 S1` and is drawn heavier and dash-dotted (`style.flow_uses` overrides it). In the walkthrough it is one step with a drill-in badge. Clicking the badge, the link beside the steps, or pressing D opens the child's walkthrough at that scenario, relative to this page, with the way back in the query; the child shows a Back link, and B goes back to the step it came from. A `#S1` or `#S1-3` hash opens any walkthrough at that scenario or step. A TBD shows its badge without a link. Build each child's walkthrough too; `animate` notes a link to one not built yet.
+
 ### Working without draw.io desktop
 
 Rendering needs draw.io desktop; nothing else does. Where it is not installed, the views are exported by hand, from draw.io desktop or from draw.io online, and committed beside their diagrams:
@@ -181,6 +212,8 @@ Relative paths anchor to the directory holding the binding file, never to the wo
 It declares the draw.io attribute names, the Markdown table contract as section and column names, optional catalogue files to check identifiers against, each with an optional `level` of `conceptual`, `logical` or `physical` for the derived abstraction, and a severity for each rule. `examples/model.toml` is a complete worked example. With no config at all, conventional headings such as `## Components` and `## Interfaces` work out of the box.
 
 A declared catalogue that cannot be read is an error, not an absence. Skipping it silently would turn `not_in_catalogue` into a no-op exactly when the binding is wrong, which is the moment it most needs to speak up.
+
+Chaining adds `patterns_root`, `pattern_id` and `approved_statuses` to `[model]`, the `uses` scenario column, and the rules listed under chaining above.
 
 The rules added for local identifiers are `id_unmatched`, `id_attr_mismatch`, `mapping_missing` (warn by default), `mapping_unknown_local`, `mapping_invalid`, `mapping_not_in_catalogue` and `mapping_duplicates_node` (warn).
 

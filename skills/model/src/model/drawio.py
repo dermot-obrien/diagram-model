@@ -38,6 +38,11 @@ NODE_W, NODE_H = 220, 80
 COL_GAP, ROW_GAP = 120, 48
 MARGIN = 80
 BADGE = 30
+# A step that calls another pattern's scenario: one arrow standing for a whole child flow,
+# so it is drawn heavier and dash-dotted, and labelled with the call, `3: PAT-905 S1`.
+FLOW_USES_STYLE = ("edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;"
+                   "dashPattern=12 4 2 4;strokeWidth=3;strokeColor=#C25B54;"
+                   "fontColor=#C25B54;fontSize=12;fontStyle=1;")
 
 
 # ------------------------------------------------------------------------ reading
@@ -203,6 +208,7 @@ def read(path, cfg) -> Model:
                 target=_first(t.attrs, id_attrs) if t else "",
                 action=_unnumber(_strip_html(c.label)),
                 edge=c.attrs.get(edge_attr, ""),
+                uses=c.attrs.get("uses", ""),
                 attrs={k: v for k, v in c.attrs.items()
                        if k in ("from_abb", "to_abb", "from", "to")},
             ))
@@ -292,6 +298,7 @@ def write(m: Model, path, cfg, style=None) -> None:
                                      "strokeColor=none;fontColor=#FFFFFF;fontSize=14;fontStyle=1;")
     flow_style = style.get("flow", "edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;"
                                    "strokeWidth=2;strokeColor=#C25B54;fontColor=#C25B54;fontSize=12;")
+    uses_style = style.get("flow_uses", FLOW_USES_STYLE)
 
     # Structure. id and the identifier attribute are set to the same value on purpose:
     # a copy-pasted shape keeps the attribute and gets a random id, which is how
@@ -345,11 +352,14 @@ def write(m: Model, path, cfg, style=None) -> None:
                 out.append("        </object>")
             if st.actor and st.target:
                 eid = f' {cfg.edge_id_attr}="{_esc(st.edge)}"' if st.edge else ""
+                uses = f' uses="{_esc(st.uses)}"' if st.uses else ""
+                label = f"{st.step}: {st.uses}" if st.uses else str(st.step)
                 out.append(f'        <object id="{_esc(sc.key)}-flow-{st.step}" '
-                           f'label="{st.step}" scenario="{_esc(sc.key)}" '
-                           f'step="{st.step}"{eid} from="{_esc(st.actor)}" '
+                           f'label="{_esc(label)}" scenario="{_esc(sc.key)}" '
+                           f'step="{st.step}"{eid}{uses} from="{_esc(st.actor)}" '
                            f'to="{_esc(st.target)}">')
-                out.append(f'          <mxCell style="{flow_style}" edge="1" parent="{lyr}" '
+                out.append(f'          <mxCell style="{uses_style if st.uses else flow_style}" '
+                           f'edge="1" parent="{lyr}" '
                            f'source="{_esc(cfg.cell_id_for(st.actor))}" target="{_esc(cfg.cell_id_for(st.target))}">')
                 out.append('            <mxGeometry relative="1" as="geometry" />')
                 out.append("          </mxCell>")
