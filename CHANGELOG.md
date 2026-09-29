@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Semanti
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-29
+
+### Added
+
+- Sibling discovery reads requirements as Package URLs with a range, `pkg:generic/<owner>/<bundle>/<skill> ^0.7.0`, as DD-11 of AI-Assisted Work sets out, as well as the older `name@range`. `requirement_name` is importable. Tests cover both forms.
+
+### Changed
+
+- The skill's identifier is `pkg:generic/dermot-obrien/diagram-model/model`, and releases are tagged `model--v<version>`, named after the skill rather than the repository.
+- The marketplace defines one package per skill: install it as `model@diagram-model`, not `diagram-model@diagram-model`. CI checks each skill's versions agree.
+
 ## [0.6.0] - 2026-09-29
 
 Extracted from AI-Assisted Work, where it was `skills/model`, into its own repository, https://github.com/dermot-obrien/diagram-model, so it can be installed and used without that framework. The `pattern` skill, in https://github.com/dermot-obrien/architecture-pattern, and the skills of AI-Assisted Architecture depend on it. NOTICE records the source commit, and the history before this entry is the history of that path in AI-Assisted Work.

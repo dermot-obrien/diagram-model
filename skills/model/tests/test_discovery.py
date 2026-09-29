@@ -77,6 +77,25 @@ class Discovery(unittest.TestCase):
         newest = skill(cache, "0.10.0", "skills", "markdown-deck", requires="")
         self.assertEqual(bindings.sibling_skills(self.pattern)["markdown-deck"], newest)
 
+    def test_purl_requirements_name_their_skills(self):
+        pattern = skill(self.project, ".agents", "skills", "pattern2",
+                        requires="pkg:generic/owner/diagram-model/model ^0.7.0, "
+                                 "pkg:generic/owner/markdown-deck/markdown-deck ^0.6.0")
+        deck = skill(self.project, ".github", "skills", "markdown-deck", requires="")
+        model = skill(self.home, ".cursor", "skills", "model", requires="")
+        found = bindings.sibling_skills(pattern)
+        self.assertEqual(found["markdown-deck"], deck)
+        self.assertEqual(found["model"], model)
+
+    def test_requirement_name_in_both_forms(self):
+        name = bindings.requirement_name
+        self.assertEqual(name("pkg:generic/owner/diagram-model/model ^0.7.0"), "model")
+        self.assertEqual(name("pkg:generic/owner/diagram-model/model@0.7.0"), "model")
+        self.assertEqual(name("  pkg:generic/owner/bundle/some-skill >=1.2.0 <2.0.0 "), "some-skill")
+        self.assertEqual(name("model@^0.6.0"), "model")
+        self.assertEqual(name("markdown-deck"), "markdown-deck")
+        self.assertEqual(name(""), "")
+
     def test_find_skill_by_name_from_model(self):
         model = skill(self.home, ".agents", "skills", "model", requires="")
         self.assertEqual(bindings.find_skill("pattern", model), self.pattern)

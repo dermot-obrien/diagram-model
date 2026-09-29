@@ -41,20 +41,26 @@ jobs:
       - name: Test
         run: python -m unittest discover -s skills/model/tests
 
-  plugin:
-    name: Plugin manifests agree
+  versions:
+    name: Each skill's versions agree
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Versions agree across SKILL.md, pyproject.toml, __init__.py and the plugin manifests
+      - name: SKILL.md, pyproject.toml, __init__.py and the marketplace entry agree, per skill
         run: |
+          fail=0
+          for d in skills/*/; do
+            name=$(basename "$d")
+            skill=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$d/SKILL.md")
+            market=$(node -p "(require('./.claude-plugin/marketplace.json').plugins.find(p => p.name === '$name') || {}).version")
+            echo "$name: SKILL.md $skill, marketplace.json $market"
+            [ "$skill" = "$market" ] || fail=1
+          done
           skill=$(sed -n 's/^  version: "\(.*\)"/\1/p' skills/model/SKILL.md)
           py=$(sed -n 's/^version = "\(.*\)"/\1/p' skills/model/pyproject.toml)
           init=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' skills/model/src/model/__init__.py)
-          plugin=$(node -p "require('./.claude-plugin/plugin.json').version")
-          market=$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].version")
-          echo "SKILL.md $skill, pyproject $py, __init__ $init, plugin.json $plugin, marketplace.json $market"
-          test "$skill" = "$py" && test "$py" = "$init" && test "$init" = "$plugin" && test "$plugin" = "$market"
+          echo "model: pyproject $py, __init__ $init"; [ "$py" = "$skill" ] && [ "$init" = "$skill" ] || fail=1
+          exit $fail
 
   reuse:
     name: REUSE compliance

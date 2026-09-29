@@ -1,21 +1,34 @@
 {
   "name": "diagram-model",
-  "description": "The diagram-model plugin, shipping the model skill, as a Claude Code plugin.",
+  "description": "The diagram-model bundle's skills, one package per skill.",
   "owner": {
     "name": "Dermot O'Brien",
     "url": "https://github.com/dermot-obrien"
   },
   "plugins": [
     {
-      "name": "diagram-model",
+      "name": "model",
       "source": "./",
-      "description": "Treat a diagram and a document as two views of one model: extract, emit, sync, validate and render between Markdown tables, draw.io, JSON and YAML. Ships the model skill.",
-      "version": "0.6.0",
-      "category": "documentation",
-      "tags": [
+      "strict": false,
+      "description": "Treat a diagram and a document as two views of one model: extract, emit, sync, validate and render between Markdown tables, draw.io, JSON and YAML.",
+      "version": "0.7.0",
+      "author": {
+        "name": "Dermot O'Brien",
+        "url": "https://github.com/dermot-obrien"
+      },
+      "homepage": "https://github.com/dermot-obrien/diagram-model",
+      "repository": "https://github.com/dermot-obrien/diagram-model",
+      "license": "CC-BY-4.0 AND Apache-2.0",
+      "keywords": [
         "drawio",
+        "markdown",
+        "model",
         "diagram",
-        "markdown"
+        "agent-skill"
+      ],
+      "category": "documentation",
+      "skills": [
+        "./skills/model"
       ]
     }
   ]

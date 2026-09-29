@@ -269,8 +269,22 @@ def _skills_in(parent: str) -> list:
             if os.path.exists(os.path.join(parent, name, "SKILL.md"))]
 
 
+def requirement_name(part: str) -> str:
+    """The skill name in one requirement, in either form a SKILL.md may use.
+
+    A Package URL and a range, `pkg:generic/<owner>/<bundle>/<skill> ^0.7.0`, names the skill
+    in its last path segment. The older form, `<skill>@^0.6.0`, names it before the `@`.
+    """
+    part = part.strip()
+    if part.startswith("pkg:"):
+        ident = part.split()[0].split("@")[0].split("?")[0].split("#")[0]
+        return ident.rstrip("/").rsplit("/", 1)[-1]
+    return part.split("@")[0].split()[0] if part else ""
+
+
 def _declared_requires(skill_dir: str) -> list:
-    """Skill names from `metadata.x-skill-requires: "name@range, name@range"` in SKILL.md."""
+    """Skill names from `metadata.x-skill-requires` in SKILL.md: comma-separated
+    requirements, each a Package URL and a range, or the older `name@range`."""
     try:
         with open(os.path.join(skill_dir, "SKILL.md"), encoding="utf-8") as fh:
             text = fh.read(8192)
@@ -279,7 +293,7 @@ def _declared_requires(skill_dir: str) -> list:
     m = re.search(r"^\s+x-skill-requires:\s*[\"']?([^\"'\n]*)", text, re.M)
     if not m:
         return []
-    return [part.split("@")[0].strip() for part in m.group(1).split(",") if part.strip()]
+    return [n for n in (requirement_name(p) for p in m.group(1).split(",")) if n]
 
 
 def report(cfg, skill_dir: str, skill: str = "model") -> tuple:
