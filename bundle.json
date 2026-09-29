@@ -1,0 +1,28 @@
+{
+  "$schema": "pkg:generic/dermot-obrien/ai-assisted-work/bundle-schema@1.0.0",
+  "name": "diagram-model",
+  "owner": "dermot-obrien",
+  "description": "Treat a diagram and a document as two views of one model of boxes and lines: extract, emit, sync, validate and render between Markdown tables, draw.io, JSON and YAML.",
+  "license": "CC-BY-4.0 AND Apache-2.0",
+  "homepage": "https://github.com/dermot-obrien/diagram-model",
+  "derived_from": [
+    "https://github.com/dermot-obrien/ai-assisted-work/tree/ac5c7ecfc3f7872737b5760906350efaa4441470/skills/model"
+  ],
+  "skills": [
+    {
+      "name": "model",
+      "path": "skills/model",
+      "version": "0.7.0",
+      "purl": "pkg:generic/dermot-obrien/diagram-model/model@0.7.0",
+      "requires": [],
+      "check": {
+        "command": ["python", "bin/model.py", "doctor"],
+        "runtime": "python",
+        "description": "The workspace's .agents/skill-bindings.toml, if any, parses and every path it binds for model resolves"
+      }
+    }
+  ],
+  "adapters": {
+    "claude-plugin": ".claude-plugin/marketplace.json"
+  }
+}
