@@ -73,3 +73,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: fsfe/reuse-action@v6
+
+  skills-ref:
+    name: Agent Skills reference validator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # skills-ref is the reference validator the Agent Skills specification names
+      # (https://agentskills.io/specification#validation). It is pinned to a commit,
+      # so a change upstream cannot turn this job red on its own.
+      - name: Install skills-ref
+        run: python -m pip install "git+https://github.com/agentskills/agentskills@69ef37e9424c0a7ea9dd2293b559e43ec8176379#subdirectory=skills-ref"
+      - name: skills-ref validate, per skill
+        run: |
+          fail=0
+          for d in skills/*/; do
+            skills-ref validate "$d" || fail=1
+          done
+          exit $fail
+      # The specification recommends a SKILL.md under 500 lines and a body under
+      # 5,000 tokens, with detail moved to files the body links. skills-ref checks
+      # neither, so this does, estimating tokens as characters divided by four.
+      - name: SKILL.md within the specification's size guidance
+        run: |
+          python - <<'PY'
+          import pathlib, sys
+          fail = False
+          for f in sorted(pathlib.Path("skills").glob("*/SKILL.md")):
+              text = f.read_text(encoding="utf-8")
+              body = text.split("---", 2)[2]
+              lines, tokens = len(text.splitlines()), len(body) // 4
+              ok = lines <= 500 and tokens <= 5000
+              print(f"{'ok' if ok else 'FAIL'} {f}: {lines} lines, about {tokens} body tokens")
+              fail |= not ok
+          sys.exit(1 if fail else 0)
+          PY

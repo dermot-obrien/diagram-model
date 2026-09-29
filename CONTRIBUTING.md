@@ -21,12 +21,15 @@ Run, from the repository root:
 
 ```bash
 node scripts/validate-skills.mjs skills
+skills-ref validate skills/model
 python -m unittest discover -s skills/model/tests
 ```
 
 Keep the skill generic. It is used by many organisations, so nothing in it may name or imply one: no organisation names, internal hosts, identifiers or brand palettes in code, tests or examples. An organisation's own vocabulary, catalogue and layout belong in its own repository, bound through its own `.agents/skill-bindings.toml`.
 
 Record a user-visible change in `CHANGELOG.md` and raise the version in `skills/model/SKILL.md` (`metadata.version`), `skills/model/pyproject.toml`, `skills/model/src/model/__init__.py` and the skill's entry in `.claude-plugin/marketplace.json` together.
+
+`skills-ref` is the Agent Skills reference validator; the README's [Agent Skills conformance](README.md#agent-skills-conformance) section says how to install it. CI runs both, and fails a `SKILL.md` over 500 lines or about 5,000 tokens: move detail into a file under the skill and link it.
 
 ## Releases
 
