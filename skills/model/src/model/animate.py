@@ -27,7 +27,7 @@ import struct
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import chain, drawio, markdown, render, validate
+from . import composition, drawio, markdown, render, validate
 
 DEFAULT_ACCENT = "#D6453D"
 TOLERANCE = 0.015          # relative difference between image and diagram aspect ratios
@@ -197,7 +197,7 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
         problems.append(f"  {k}: has an overlay layer but no steps table in the document")
 
     used_nodes, scenarios = set(), []
-    resolver = chain.Resolver(cfg)
+    resolver = composition.Resolver(cfg)
     for key in [s.key for s in doc.scenarios if s.key in dia_scen]:
         ds, gs = doc_scen[key], dia_scen[key]
         by_step = {s.step: s for s in ds.steps}
@@ -300,10 +300,12 @@ def build(doc_path, cfg, diagram_path=None, image=None, drawio_bin=None, force=F
 
 
 def _uses(value, doc_path, cfg, resolver):
-    """A call-out step's drill-in: the ref, and the child's walkthrough when it resolves.
+    """A participation step's drill-in: the ref, and the participating pattern's
+    walkthrough when it resolves.
 
-    The child's page is where `animate` writes it, beside the child document. The link is
-    made relative in `write`, once the parent's own page has a place."""
+    That page is where `animate` writes it, beside the participating pattern's document.
+    The link is made relative in `write`, once the composite pattern's own page has a
+    place."""
     val, kind, pid, key, _name = markdown.parse_uses(value, cfg)
     out = {"ref": val, "kind": kind}
     if kind == "ref":
@@ -316,7 +318,7 @@ def _uses(value, doc_path, cfg, resolver):
 
 def _links(data, out):
     """Turn each drill-in target into a link relative to the page at `out`, and the way
-    back into one relative to the child's page. Only relative links, so a folder of
+    back into one relative to the participating pattern's page. Only relative links, so a folder of
     walkthroughs opens from disk and survives being moved as a whole."""
     from urllib.parse import quote
     notes, base = [], os.path.dirname(os.path.abspath(out))
@@ -430,7 +432,7 @@ ol li button[aria-current="step"] .k,ol li.done .k{background:var(--accent);colo
 </head>
 <body>
 <header>
-  <h1><a class="back" id="back" hidden>&#9664; Back</a>__TITLE__: scenarios</h1>
+  <h1><a class="back" id="back" hidden>&#9664; Back to the composite pattern</a>__TITLE__: scenarios</h1>
   <div class="tabs" role="group" aria-label="Scenario" id="tabs"></div>
 </header>
 <main>
@@ -483,17 +485,17 @@ function arrow(a,b,g,cur,sub){const A=B(a),Bb=B(b);if(!A||!Bb)return[0,0,0,0];le
   if(cur&&!sub){path.style.setProperty("--len",path.getTotalLength());path.classList.add("draw");}
   return[cx,cy,mx,my];}
 const BACK=(()=>{try{const b=new URLSearchParams(location.search).get("back");return b&&!/^[a-z][a-z0-9+.-]*:/i.test(b)&&!/^[\/\\]/.test(b)?b:null;}catch(e){return null;}})();
-function drillUrl(s){const u=s&&s.uses;if(!u||!u.href)return null;const S=D.scenarios[si];
+function drillTarget(s){const u=s&&s.uses;if(!u||!u.href)return null;const S=D.scenarios[si];
   const back=u.back+(BACK?"?back="+encodeURIComponent(BACK):"")+"#"+encodeURIComponent(S.key+"-"+s.n);
   return u.href+"?back="+encodeURIComponent(back)+"#"+encodeURIComponent(u.key);}
-function drill(s){const url=drillUrl(s);if(url){stop();location.href=url;}}
+function drill(s){const t=drillTarget(s);if(t){stop();location.assign(t);}}
 function subBadge(s,x0,y0,g){const u=s.uses,t=(u.href?"⤴ ":"")+u.ref,w=(t.length*8.6+22)*K,h=28*K;
   const G=el("g",{class:u.href?"sub":""},g);el("rect",{x:x0-w/2,y:y0-h/2,width:w,height:h,rx:14*K,fill:u.href?ACC:"#fff",stroke:ACC,"stroke-width":2*K,"stroke-dasharray":u.href?"none":`${5*K} ${4*K}`},G);
   const t2=el("text",{x:x0,y:y0+5*K,"text-anchor":"middle","font-size":14*K,"font-weight":700,fill:u.href?"#fff":ACC,"font-family":"system-ui,sans-serif"},G);t2.textContent=t;
   if(u.href){const tt=el("title",{},G);tt.textContent="Open "+u.ref;G.addEventListener("click",()=>drill(s));}}
 function drillPanel(s){const dp=$("drill");dp.innerHTML="";dp.hidden=!(s&&s.uses);if(dp.hidden)return;const u=s.uses,p=document.createElement("div");
-  p.textContent=u.href?`Step ${s.n} is the sub-flow ${u.ref}.`:u.kind==="tbd"?`Step ${s.n} is an open sub-flow, ${u.ref}, not written yet.`:`Step ${s.n} calls ${u.ref}, which has no walkthrough to open.`;dp.appendChild(p);
-  if(u.href){const a=document.createElement("a");a.href=drillUrl(s);a.textContent="Open "+u.ref+" ⤴";dp.appendChild(a);}}
+  p.textContent=u.href?`Step ${s.n} runs the participating pattern ${u.ref}.`:u.kind==="tbd"?`Step ${s.n} runs an open participating pattern, ${u.ref}, not written yet.`:`Step ${s.n} runs ${u.ref}, which has no walkthrough to open.`;dp.appendChild(p);
+  if(u.href){const a=document.createElement("a");a.setAttribute("href",drillTarget(s));a.textContent="Open "+u.ref+" ⤴";dp.appendChild(a);}}
 function ring(id,g,strong){const b=B(id);if(b)el("rect",{x:b.x-6*K,y:b.y-6*K,width:b.w+12*K,height:b.h+12*K,rx:10*K,fill:"none",stroke:ACC,"stroke-width":(strong?5:3)*K,class:strong?"pulse":""},g);}
 function hole(id){const b=B(id);if(b)el("rect",{x:b.x-8*K,y:b.y-8*K,width:b.w+16*K,height:b.h+16*K,rx:10*K,fill:"#000"},$("holes"));}
 function badge(id,n,g,k){const b=B(id);if(!b)return;const x=b.x+14*K+k*30*K,y=b.y+2*K;el("circle",{cx:x,cy:y,r:15*K,fill:ACC,stroke:"#fff","stroke-width":3*K},g);const t=el("text",{x,y:y+5.5*K,"text-anchor":"middle","font-size":16*K,"font-weight":700,fill:"#fff","font-family":"system-ui,sans-serif"},g);t.textContent=n;}
@@ -508,7 +510,7 @@ function showPop(s){const p=$("pop"),E=D.edges[s.edge]||{};
   p.innerHTML='<div><span class="n"></span><span class="a"></span></div><div class="m"></div>';
   p.querySelector(".n").textContent=s.n;p.querySelector(".a").textContent=s.action;
   const det=(E.details||[]).map(d=>d[0]+": "+d[1]).join("  ·  ");
-  p.querySelector(".m").textContent=`${s.from} ${nm(s.from)} → ${s.to} ${nm(s.to)}${s.edge?"  ·  "+s.edge:""}${E.label?" "+E.label:""}${det?"  ·  "+det:""}${s.uses?"  ·  calls "+s.uses.ref:""}`;
+  p.querySelector(".m").textContent=`${s.from} ${nm(s.from)} → ${s.to} ${nm(s.to)}${s.edge?"  ·  "+s.edge:""}${E.label?" "+E.label:""}${det?"  ·  "+det:""}${s.uses?"  ·  runs "+s.uses.ref:""}`;
   const c=$("canvas").getBoundingClientRect(),sc=c.width/W,T=(x,y)=>[x*sc*Z.z+Z.tx,y*sc*Z.z+Z.ty];
   const bs=[B(s.from),B(s.to)].filter(Boolean);
   const[ux0,uy0]=T(Math.min(...bs.map(b=>b.x)),Math.min(...bs.map(b=>b.y))),[ux1,uy1]=T(Math.max(...bs.map(b=>b.x+b.w)),Math.max(...bs.map(b=>b.y+b.h)));
@@ -533,15 +535,15 @@ D.scenarios.forEach((S,n)=>{const b=document.createElement("button");b.textConte
 $("follow").onclick=()=>{follow=!follow;$("follow").setAttribute("aria-pressed",follow);$("follow").textContent="Zoom to step: "+(follow?"on":"off");render();};
 $("prev").onclick=()=>{stop();go(i-1);};$("next").onclick=()=>{stop();go(i+1);};$("play").onclick=play;$("reset").onclick=()=>{stop();go(-1);};
 document.addEventListener("keydown",e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;if(e.key==="ArrowRight"){stop();go(i+1);}else if(e.key==="ArrowLeft"){stop();go(i-1);}else if(e.key===" "){e.preventDefault();play();}
-  else if(e.key==="d"||e.key==="D"){drill(D.scenarios[si].steps[i]);}else if((e.key==="b"||e.key==="B")&&BACK){location.href=BACK;}});
+  else if(e.key==="d"||e.key==="D"){drill(D.scenarios[si].steps[i]);}else if((e.key==="b"||e.key==="B")&&BACK){location.assign(BACK);}});
 window.addEventListener("resize",()=>{if(i>=0)render();});
 function fromHash(){let h="";try{h=decodeURIComponent(location.hash.slice(1));}catch(e){}if(!h)return null;
   for(let n=0;n<D.scenarios.length;n++){const S=D.scenarios[n],k=S.key;if(h===k)return[n,-1];
     if(h.startsWith(k+"-")){const m=Number(h.slice(k.length+1)),j=S.steps.findIndex(s=>s.n===m);if(j>=0)return[n,j];}}return null;}
 function openHash(){const h=fromHash();if(!h)return false;pick(h[0]);if(h[1]>=0)go(h[1]);return true;}
 window.addEventListener("hashchange",openHash);
-if(BACK){const a=$("back");a.href=BACK;a.hidden=false;}
-{const sub=D.scenarios.some(S=>S.steps.some(s=>s.uses&&s.uses.href));if(sub)$("hint").textContent+=", D opens a sub-flow";if(BACK)$("hint").textContent+=", B goes back";}
+if(BACK){const a=$("back");a.setAttribute("href",BACK);a.hidden=false;}
+{const sub=D.scenarios.some(S=>S.steps.some(s=>s.uses&&s.uses.href));if(sub)$("hint").textContent+=", D opens a participating pattern";if(BACK)$("hint").textContent+=", B goes back";}
 let start=0;try{const k=localStorage.getItem(__STORE__);const n=D.scenarios.findIndex(s=>s.key===k);if(n>=0)start=n;}catch(e){}
 if(!openHash())pick(start);
 </script>

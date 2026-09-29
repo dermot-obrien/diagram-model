@@ -62,7 +62,7 @@ python bin/model.py extract  doc.md --format json
 python bin/model.py emit     doc.md --to drawio --out components.drawio
 python bin/model.py validate doc.md --against components.drawio
 python bin/model.py sync     doc.md components.drawio
-python bin/model.py chain    doc.md
+python bin/model.py composition doc.md
 python bin/model.py layers   components.drawio
 python bin/model.py render   components.drawio --out s1.svg --layer Structure --layer "S1 Happy path"
 ```
@@ -86,7 +86,7 @@ Model
 
 A scenario is a numbered walkthrough overlaid on the structure. That is a UML communication diagram, which C4 calls a dynamic diagram. It cannot express branching, loops or concurrency, so a flow with real alternatives belongs in a sequence diagram instead.
 
-A step's `uses` calls a scenario of another model, `PAT-905 S1`, or marks one not yet written, `TBD <name>`: the step stands for that whole child flow, entering at its actor and leaving at its target. `validate` resolves the chain and `chain <doc>` prints it; `SKILL.md` has the rules.
+A step's `uses` runs a scenario of another pattern, `PAT-905 S1`, or marks an open participating pattern, `TBD <name>`. The pattern holding such steps is a composite pattern: each participation step stands for the participating pattern's whole flow, entering at its actor and leaving at its target. `validate` resolves the composition and `composition <doc>` prints it; `SKILL.md` has the rules.
 
 ## Configuration
 
@@ -153,7 +153,7 @@ Every rule has a severity of `error`, `warn` or `off`. A rule that is right for 
 | `catalogue_unreadable` | A declared catalogue that is missing, has the wrong column, or is empty |
 | `not_in_catalogue` | An identifier the project does not recognise |
 | `doc_not_in_diagram`, `diagram_not_in_doc` | A row nobody drew, or a shape nobody wrote down |
-| `chain_*`, `step_uses_mismatch` | A scenario step's call to another model that does not resolve, loops, joins at the wrong box, is still `TBD`, or rests an approved model on an unapproved one |
+| `uses_*`, `participant_*`, `composition_cycle`, `step_uses_mismatch` | A participation step whose participating pattern does not resolve, runs the composite pattern again, joins at the wrong box, is still `TBD`, or leaves an approved composite pattern resting on an unapproved one |
 
 The last five are the ones that earn their keep. Anyone can see an unlabelled box. Nobody can see, by looking, that an arrow now points somewhere else.
 

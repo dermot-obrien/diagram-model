@@ -327,11 +327,11 @@ def report(cfg, skill_dir: str, skill: str = "model") -> tuple:
         issues.append(Issue("error", cat.path, msg))
     payload["catalogueIdentifiers"] = len(ids)
 
-    # Where a scenario step's Uses finds the pattern it calls. Unbound is fine: the
+    # Where a participation step's Uses finds the participating pattern. Unbound is fine: the
     # folders above each document are searched instead. Bound to nothing is an error.
-    from .chain import Resolver
+    from .composition import Resolver
     search = Resolver(cfg).describe()
-    payload["chain"] = {**search, "approvedStatuses": list(cfg.approved_statuses),
+    payload["composition"] = {**search, "approvedStatuses": list(cfg.approved_statuses),
                         "patternId": cfg.pattern_id}
     if search["patternsRoot"] and not search["exists"]:
         issues.append(Issue("error", search["from"],

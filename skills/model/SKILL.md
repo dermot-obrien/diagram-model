@@ -1,6 +1,6 @@
 ---
 name: model
-description: Treat a diagram and a document as two views of one model of boxes and lines. Extract a model from Markdown tables, draw.io, JSON or YAML; emit it to any of those; validate one representation against another to catch a re-pointed arrow or an undrawn row; and render draw.io layers to SVG, PNG or PDF. Use when asked to generate a diagram from a table, check a diagram matches its document, export a diagram, list a diagram's layers, convert a model between formats, or trace the child flows a scenario calls in other models.
+description: Treat a diagram and a document as two views of one model of boxes and lines. Extract a model from Markdown tables, draw.io, JSON or YAML; emit it to any of those; validate one representation against another to catch a re-pointed arrow or an undrawn row; and render draw.io layers to SVG, PNG or PDF. Use when asked to generate a diagram from a table, check a diagram matches its document, export a diagram, list a diagram's layers, convert a model between formats, or trace which patterns a composite pattern's scenarios run.
 license: CC-BY-4.0 AND Apache-2.0. Content under CC BY 4.0, code under Apache-2.0; see LICENSE and NOTICE.
 compatibility: Python 3.9 or newer; Python 3.11 or newer to read a binding file. Rendering needs draw.io desktop installed (the installed build, not the portable exe). Reading YAML needs PyYAML; writing YAML needs nothing.
 metadata:
@@ -35,7 +35,7 @@ python bin/model.py doctor           [--skill NAME] [--json]
 python bin/model.py extract <file>   --format json|yaml|csv [--out FILE]
 python bin/model.py emit    <file>   --to drawio|markdown|json|yaml|csv --out FILE [--force]
 python bin/model.py validate <file>  [--against OTHER] [--json] [--fail-on error|warn|never]
-python bin/model.py chain   <doc>    [--json]
+python bin/model.py composition <doc> [--json]
 python bin/model.py sync <doc> <drawio> [--prune] [--dry-run] [--adopt]
 python bin/model.py rename  <doc> OLD NEW [--drawio FILE] [--dry-run]
 python bin/model.py scan    <folder> [--recursive] [--json] [--fail-on error|warn|never]
@@ -154,35 +154,35 @@ The structure view it draws on is the one thing draw.io is needed for, and draw.
 
 It validates first and stops rather than guesses. A step with no narrative, an endpoint with no shape on the structure layer, a scenario in the document but not on the diagram or the reverse, or a rendered view whose proportions differ from the shapes' extent is an error that names every case. The last usually means an edge label or waypoint lies outside the shapes; a background rectangle enclosing the structure layer, used as a frame, fixes it.
 
-### Chaining one model's scenario into another's
+### Composing patterns
 
-A step can stand for a whole scenario of another model: a child flow. Add a `Uses` column to the step table and name the child's id and scenario key, `PAT-905 S1`, or write `TBD <name>` for a child flow not yet written. Trailing text after the key is prose and ignored.
+A composite pattern is one whose scenario steps run other patterns' flows, its participating patterns. Add a `Uses` column to the step table and, on a participation step, name the participating pattern's id and scenario key, `PAT-905 S1`, or write `TBD <name>` for an open participating pattern, not yet written. Trailing text after the key is prose and ignored.
 
 | Step | Actor | Target | Action | Interface | Uses |
 |---:|---|---|---|---|---|
 | 2 | ABB-901 Order service | ABB-901 Order service | take payment | | PAT-905 S1 |
 
-A step with Uses needs an Actor and a Target, the boxes where the child flow enters and leaves; its Interface is optional. Steps without Uses, and documents without the column, behave as before. The header comes from the scenario column contract (`uses = "Uses"`), and a child's id must match `pattern_id`, by default `[A-Z]{2,5}-[0-9]{3}`.
+A participation step needs an Actor and a Target, the boxes where the participating pattern's flow enters and leaves; its Interface is optional. Steps without Uses, and documents without the column, behave as before. The header comes from the scenario column contract (`uses = "Uses"`), and a participating pattern's id must match `pattern_id`, by default `[A-Z]{2,5}-[0-9]{3}`.
 
-`validate` resolves each call and says, by rule:
+`validate` resolves each participation step and says, by rule:
 
 | Rule | Severity | When |
 |---|---|---|
-| `chain_uses_invalid` | error | The cell is neither `<ID> <KEY>` nor `TBD <name>` |
-| `chain_step_endpoints` | error | A Uses step without an Actor or a Target |
-| `chain_child_missing`, `chain_scenario_missing` | error | No document for the id, or no scenario with the key |
-| `chain_cycle` | error | A model reaching itself through Uses, directly or transitively |
-| `chain_join` | warn | The child's first actor is not the parent step's Actor, or neither its last step's actor nor its target is the parent step's Target. Boxes match when they share a catalogue id, directly or through either document's Catalogue Mapping; local ids never match across documents |
-| `chain_open` | warn | A `TBD` child flow, listed until it is written |
-| `chain_unapproved` | error | The parent's front matter `status` is approved but a child, at any depth, is not, or a `TBD` remains |
-| `chain_ambiguous` | warn | Two documents claim one id; the first is used |
+| `uses_invalid` | error | The cell is neither `<ID> <KEY>` nor `TBD <name>` |
+| `uses_step_endpoints` | error | A participation step without an Actor or a Target |
+| `participant_missing`, `participant_scenario_missing` | error | No document for the id, or no scenario with the key |
+| `composition_cycle` | error | A pattern running itself through Uses, directly or transitively |
+| `participant_join` | warn | The participating scenario's first actor is not the step's Actor, or neither its last step's actor nor its target is the step's Target. Boxes match when they share a catalogue id, directly or through either document's Catalogue Mapping; local ids never match across documents |
+| `participant_open` | warn | An open participating pattern, `TBD`, listed until it is written |
+| `participant_unapproved` | error | The composite pattern's front matter `status` is approved but a participating pattern, at any depth, is not, or a `TBD` remains |
+| `participant_ambiguous` | warn | Two documents claim one id; the first is used |
 | `step_uses_mismatch` | warn | The diagram's overlay arrow carries a different Uses; run `sync` |
 
-A child is a folder whose name starts with `<ID>-` holding `index.md`, or, when no folder is named for the id, a document whose first H1 starts with it. It is looked for under `[model] patterns_root`, else `[suite.pattern] patternsRoot`, else `[suite.pattern] outputDir`, to any depth. With none bound, each folder from the parent document's upward is searched two levels deep, stopping at the repository root. `approved_statuses` in `[model]`, or `approvedStatuses` in `[suite.pattern]`, sets which statuses the gate counts as approved, by default Final, Approved, Active and Published. `doctor` prints the root in use.
+A participating pattern is a folder whose name starts with `<ID>-` holding `index.md`, or, when no folder is named for the id, a document whose first H1 starts with it. It is looked for under `[model] patterns_root`, else `[suite.pattern] patternsRoot`, else `[suite.pattern] outputDir`, to any depth. With none bound, each folder from the composite pattern's upward is searched two levels deep, stopping at the repository root. `approved_statuses` in `[model]`, or `approvedStatuses` in `[suite.pattern]`, sets which statuses the gate counts as approved, by default Final, Approved, Active and Published. `doctor` prints the root in use.
 
-`chain <doc>` prints the tree: each Uses step, the child's id, scenario and status, open TBDs, recursively, with cycles marked. `--json` gives the same as data. `validate` adds a one-line summary.
+`composition <doc>` prints the composition tree: each participation step, the participating pattern's id, scenario and status, open participating patterns, recursively, with cycles marked. `--json` gives the same as data. `validate` adds a one-line summary.
 
-On the diagram, the overlay arrow of a Uses step carries `uses="PAT-905 S1"`, is labelled `2: PAT-905 S1` and is drawn heavier and dash-dotted (`style.flow_uses` overrides it). In the walkthrough it is one step with a drill-in badge. Clicking the badge, the link beside the steps, or pressing D opens the child's walkthrough at that scenario, relative to this page, with the way back in the query; the child shows a Back link, and B goes back to the step it came from. A `#S1` or `#S1-3` hash opens any walkthrough at that scenario or step. A TBD shows its badge without a link. Build each child's walkthrough too; `animate` notes a link to one not built yet.
+On the diagram, the overlay arrow of a participation step carries `uses="PAT-905 S1"`, is labelled `2: PAT-905 S1` and is drawn heavier and dash-dotted (`style.flow_uses` overrides it). In the walkthrough it is one step with a drill-in badge. Clicking the badge, the link beside the steps, or pressing D opens the participating pattern's walkthrough at that scenario, relative to this page, with the way back in the query; that page shows a link back to the composite pattern, and B goes back to the step it came from. A `#S1` or `#S1-3` hash opens any walkthrough at that scenario or step. An open participating pattern shows its badge without a link. Build each participating pattern's walkthrough too; `animate` notes a link to one not built yet. The page's script holds no `url(...)` or attribute text a deck's asset scan would read as a file, so embedding it in a markdown-deck slide raises no warning.
 
 ### Working without draw.io desktop
 
@@ -213,7 +213,7 @@ It declares the draw.io attribute names, the Markdown table contract as section 
 
 A declared catalogue that cannot be read is an error, not an absence. Skipping it silently would turn `not_in_catalogue` into a no-op exactly when the binding is wrong, which is the moment it most needs to speak up.
 
-Chaining adds `patterns_root`, `pattern_id` and `approved_statuses` to `[model]`, the `uses` scenario column, and the rules listed under chaining above.
+Composing patterns adds `patterns_root`, `pattern_id` and `approved_statuses` to `[model]`, the `uses` scenario column, and the rules listed under composing above.
 
 The rules added for local identifiers are `id_unmatched`, `id_attr_mismatch`, `mapping_missing` (warn by default), `mapping_unknown_local`, `mapping_invalid`, `mapping_not_in_catalogue` and `mapping_duplicates_node` (warn).
 

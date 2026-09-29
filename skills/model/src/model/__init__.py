@@ -10,10 +10,10 @@ Nothing here knows what the boxes mean. Domain vocabulary lives in `model.toml`.
 __version__ = "0.8.0"
 
 from .schema import Model, Node, Edge, Group, Scenario, Step  # noqa: F401
-from . import config, drawio, markdown, serial, validate, render, sync, scan, animate, chain  # noqa: F401
+from . import config, drawio, markdown, serial, validate, render, sync, scan, animate, composition  # noqa: F401
 
 __all__ = ["Model", "Node", "Edge", "Group", "Scenario", "Step",
-           "config", "drawio", "markdown", "serial", "validate", "render", "sync", "scan", "animate", "chain",
+           "config", "drawio", "markdown", "serial", "validate", "render", "sync", "scan", "animate", "composition",
            "load", "__version__"]
 
 

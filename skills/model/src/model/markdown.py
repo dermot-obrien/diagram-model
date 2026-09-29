@@ -303,7 +303,7 @@ def parse_uses(text: str, cfg) -> tuple:
     `PAT-905 S1 payment capture` is ("PAT-905 S1", "ref", "PAT-905", "S1", ""): trailing
     text is prose and dropped. `TBD fraud scoring` is ("TBD fraud scoring", "tbd", "", "",
     "fraud scoring"). An empty cell is ("", "", ...). Anything else keeps its text and is
-    "invalid", so validation can name it rather than the row being read as no call-out.
+    "invalid", so validation can name it rather than the row being read as no participation.
     """
     t = re.sub(r"\s+", " ", (text or "").strip().strip("`").strip())
     if not t or t in ("-", "\u2013", "\u2014"):
@@ -354,8 +354,8 @@ def write(m: Model, path, cfg) -> None:
     if m.scenarios:
         sc_cols = [cfg.scenarios.columns["step"], cfg.scenarios.columns["actor"],
                    cfg.scenarios.columns["action"], cfg.scenarios.columns.get("edge", "Edge")]
-        chained = any(st.uses for sc in m.scenarios for st in sc.steps)
-        if chained:
+        composed = any(st.uses for sc in m.scenarios for st in sc.steps)
+        if composed:
             sc_cols += [cfg.scenarios.columns.get("target") or "Target",
                         cfg.scenarios.columns.get("uses") or "Uses"]
         parts += [f"## {cfg.scenarios.section}", ""]
@@ -363,7 +363,7 @@ def write(m: Model, path, cfg) -> None:
             parts += [f"### {sc.key} {sc.name}".rstrip(), "", _row(sc_cols), _sep(sc_cols)]
             for st in sc.steps:
                 vals = [str(st.step), st.actor, st.action, st.edge]
-                if chained:
+                if composed:
                     vals += [st.target, st.uses]
                 parts.append(_row(vals))
             parts.append("")

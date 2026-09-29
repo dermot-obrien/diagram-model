@@ -25,7 +25,7 @@ from . import sync as sync_mod
 from . import scan as scan_mod
 from . import bindings as bindings_mod
 from . import animate as animate_mod
-from . import chain as chain_mod
+from . import composition as composition_mod
 
 MAX_FINDINGS = 200
 
@@ -89,16 +89,16 @@ def cmd_validate(a) -> int:
     else:
         other = None
         findings = (validate_mod.structural(primary, cfg) + validate_mod.catalogue(primary, cfg)
-                    + validate_mod.mapping(primary, cfg) + validate_mod.chain(primary, cfg))
+                    + validate_mod.mapping(primary, cfg) + validate_mod.composition(primary, cfg))
 
-    # A document whose scenarios call other patterns gets a one-line summary of the chain;
-    # `model chain` prints the tree.
+    # A composite pattern, whose scenarios run other patterns, gets a one-line summary of
+    # its composition; `model composition` prints the tree.
     doc_model = primary if a.input.endswith((".md", ".markdown", ".mdx")) else None
     if doc_model is None and against and against.endswith((".md", ".markdown", ".mdx")):
         doc_model = other
-    chained = None
-    if doc_model is not None and chain_mod.calls(doc_model, cfg):
-        chained = chain_mod.summary(chain_mod.tree(doc_model.source, cfg, model=doc_model))
+    composed = None
+    if doc_model is not None and composition_mod.participations(doc_model, cfg):
+        composed = composition_mod.summary(composition_mod.tree(doc_model.source, cfg, model=doc_model))
 
     if a.json:
         payload = {
@@ -111,15 +111,15 @@ def cmd_validate(a) -> int:
             "findings": [f.to_dict() for f in findings[:MAX_FINDINGS]],
             "truncated": max(0, len(findings) - MAX_FINDINGS),
         }
-        if chained:
-            payload["chain"] = chained
+        if composed:
+            payload["composition"] = composed
         print(json.dumps(payload, indent=2))
     else:
         level = validate_mod.abstraction(primary, cfg)
         print(f"  {os.path.basename(a.input)}: {primary.summary()}"
               + (f"; abstraction {level}" if level else ""))
-        if chained:
-            print(f"  {chain_mod.summary_line(chained)}; `model chain` shows the tree")
+        if composed:
+            print(f"  {composition_mod.summary_line(composed)}; `model composition` shows the tree")
         for f in findings[:MAX_FINDINGS]:
             print(f"  {f}", file=sys.stderr)
         if len(findings) > MAX_FINDINGS:
@@ -138,16 +138,17 @@ def cmd_validate(a) -> int:
     return 1 if any(f.severity == "error" for f in findings) else 0
 
 
-def cmd_chain(a) -> int:
-    """The chain below a pattern: each Uses step, the child it calls, recursively."""
+def cmd_composition(a) -> int:
+    """The composition below a pattern: each participation step, the participating
+    pattern it runs, recursively."""
     if not a.doc.endswith((".md", ".markdown", ".mdx")):
-        return _err(f"  ! {a.doc}: chain reads a Markdown document")
+        return _err(f"  ! {a.doc}: composition reads a Markdown document")
     cfg = config_mod.load(a.config, near=a.doc)
-    resolver = chain_mod.Resolver(cfg)
+    resolver = composition_mod.Resolver(cfg)
     m = markdown.read(a.doc, cfg)
-    tree = chain_mod.tree(a.doc, resolver=resolver, model=m)
-    findings = chain_mod.findings(m, cfg, resolver=resolver)
-    summ = chain_mod.summary(tree)
+    tree = composition_mod.tree(a.doc, resolver=resolver, model=m)
+    findings = composition_mod.findings(m, cfg, resolver=resolver)
+    summ = composition_mod.summary(tree)
     if a.json:
         print(json.dumps({"doc": a.doc, "search": resolver.describe(),
                           "approvedStatuses": list(cfg.approved_statuses),
@@ -155,9 +156,9 @@ def cmd_chain(a) -> int:
                           "tree": tree, "findings": [f.to_dict() for f in findings]},
                          indent=2))
     else:
-        for ln in chain_mod.render(tree):
+        for ln in composition_mod.render(tree):
             print(f"  {ln}")
-        print(f"  {chain_mod.summary_line(summ)}")
+        print(f"  {composition_mod.summary_line(summ)}")
         for f in findings[:MAX_FINDINGS]:
             print(f"  {f}", file=sys.stderr)
     return 1 if any(f.severity == "error" for f in findings) else 0
@@ -286,7 +287,7 @@ def cmd_doctor(a) -> int:
             mark = "ok " if c["exists"] else "!! "
             print(f"  catalogue    : {mark}{c['resolved']}  [{c['column']}]")
         print(f"  identifiers  : {payload['catalogueIdentifiers']}")
-        ch = payload.get("chain") or {}
+        ch = payload.get("composition") or {}
         print(f"  patterns root: {ch.get('patternsRoot') or '(unbound)'}  [{ch.get('from')}]")
         print(f"  approved     : {', '.join(ch.get('approvedStatuses') or [])}")
         if payload["siblings"]:
@@ -400,10 +401,10 @@ def build_parser():
     v.add_argument("--fail-on", default="error", choices=("error", "warn", "never"))
     v.set_defaults(fn=cmd_validate)
 
-    ch = common(sub.add_parser("chain", help="print the chain of patterns a document's scenarios call"))
+    ch = common(sub.add_parser("composition", help="print the patterns a composite pattern's scenarios run"))
     ch.add_argument("doc", help="the .md document")
     ch.add_argument("--json", action="store_true", help="machine-readable output on stdout")
-    ch.set_defaults(fn=cmd_chain)
+    ch.set_defaults(fn=cmd_composition)
 
     r = sub.add_parser("render", help="export a .drawio via the draw.io desktop CLI")
     r.add_argument("input")

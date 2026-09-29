@@ -1,28 +1,31 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Pattern chaining: a scenario step that calls a scenario of another pattern.
+"""Composing patterns: a scenario step that runs a scenario of another pattern.
 
-A step whose Uses cell reads `PAT-905 S1` stands for the whole of that child flow. Its
-Actor and Target are the boxes where the child flow enters and leaves the parent, so the
-parent stays one readable walkthrough while each child is solved, reviewed and approved
-as its own pattern. `TBD <name>` marks a child flow not yet written: a high-level pattern
-can be sketched first and its children filled in later.
+A composite pattern is one whose scenario steps run other patterns' flows. A step whose
+Uses cell reads `PAT-905 S1` is a participation step: it stands for the whole of that
+scenario of the participating pattern PAT-905. Its Actor and Target are the boxes where
+the participating flow enters and leaves the composite pattern, so the composite pattern
+stays one readable walkthrough while each participating pattern is solved, reviewed and
+approved on its own. `TBD <name>` marks an open participating pattern, not yet written: a
+composite pattern can be sketched first and its participating patterns written later.
 
 What is checked, and why each is what it is:
 
-    child not found, scenario not found, a cycle    errors: the chain does not resolve
+    participant not found, scenario not found,     errors: the composition does not
+    a cycle                                         resolve
     entry or exit box that cannot be matched        a warning: a conceptual sketch may
                                                     use different local roles
     TBD                                             a warning: open, listed, not wrong
-    approved parent over an unapproved child        an error: an approved pattern cannot
-                                                    rest on unapproved or unwritten work
+    approved composite pattern over an unapproved   an error: an approved pattern cannot
+    participating pattern                           rest on unapproved or unwritten work
 
-Where children are found. A bound root, `[model] patterns_root`, else `[suite.pattern]
-patternsRoot`, else `[suite.pattern] outputDir`, is searched to any depth. With none,
-each folder from the parent document's own upward is searched two levels deep, and the
-first that holds the id wins; the search stops at the repository root (a folder holding
-`.git` or the binding file) and after eight levels. A child is a folder whose name
-starts with `<ID>-` and holds index.md, or, when no folder is named for the id, a
-document whose first H1 starts with it.
+Where participating patterns are found. A bound root, `[model] patterns_root`, else
+`[suite.pattern] patternsRoot`, else `[suite.pattern] outputDir`, is searched to any
+depth. With none, each folder from the composite pattern's own upward is searched two
+levels deep, and the first that holds the id wins; the search stops at the repository
+root (a folder holding `.git` or the binding file) and after eight levels. A
+participating pattern is a folder whose name starts with `<ID>-` and holds index.md, or,
+when no folder is named for the id, a document whose first H1 starts with it.
 
 Nothing here runs for a document without a Uses column, so existing documents are
 untouched by it.
@@ -40,7 +43,7 @@ MD_EXT = (".md", ".markdown", ".mdx")
 SKIP_DIRS = {"node_modules", "dist", "build"}
 ANCESTOR_DEPTH = 2          # levels below each ancestor searched when no root is bound
 ANCESTOR_LIMIT = 8          # ancestors tried before giving up
-MAX_DEPTH = 25              # chain depth at which the tree stops expanding
+MAX_DEPTH = 25              # composition depth at which the tree stops expanding
 H1_RE = re.compile(r"^#\s+(.+?)\s*#*\s*$")
 
 
@@ -48,7 +51,7 @@ def _key(path) -> str:
     return os.path.normcase(os.path.abspath(path))
 
 
-def calls(m, cfg) -> list:
+def participations(m, cfg) -> list:
     """(scenario, step, parsed) for every step of a model that has a Uses value."""
     out = []
     for sc in m.scenarios:
@@ -87,7 +90,7 @@ def _h1(path, limit=65536) -> str:
 
 
 class Resolver:
-    """Finds child patterns by id and loads documents, each once per run."""
+    """Finds participating patterns by id and loads documents, each once per run."""
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -107,7 +110,7 @@ class Resolver:
         return bool(s) and s in {a.strip().lower() for a in self.cfg.approved_statuses}
 
     def describe(self) -> dict:
-        """Where children are looked for, for doctor and the chain report."""
+        """Where participating patterns are looked for, for doctor and the report."""
         if self.root:
             return {"patternsRoot": self.root, "from": self.cfg.patterns_root_from,
                     "exists": os.path.isdir(self.root)}
@@ -219,14 +222,15 @@ class Resolver:
 
 def _brief(d: Doc, r: Resolver) -> dict:
     return {"doc": d.path, "id": d.id, "title": d.title, "status": d.status,
-            "approved": r.approved(d.status), "calls": []}
+            "approved": r.approved(d.status), "participations": []}
 
 
 def tree(path, cfg=None, resolver=None, model=None) -> dict:
-    """The chain below one document: its Uses steps, each child, recursively.
+    """The composition below one document: its participation steps and each
+    participating pattern, recursively.
 
-    Every call records what it names and what was found. A child already on the path
-    from the top is marked `cycle` and not expanded again.
+    Every participation records what it names and what was found. A participating
+    pattern already on the path from the top is marked `cycle` and not expanded again.
     """
     r = resolver or Resolver(cfg or config_mod.load(None, near=path))
     return _node(os.path.abspath(path), r, [], 0, model)
@@ -236,76 +240,76 @@ def _node(path, r, stack, depth, model=None) -> dict:
     d = r.load(path, model)
     node = _brief(d, r)
     here = stack + [_key(path)]
-    for sc, st, (val, kind, pid, skey, name) in calls(d.model, d.cfg):
-        call = {"scenario": sc.key, "step": st.step, "uses": val, "kind": kind,
+    for sc, st, (val, kind, pid, skey, name) in participations(d.model, d.cfg):
+        part = {"scenario": sc.key, "step": st.step, "uses": val, "kind": kind,
                 "actor": st.actor, "target": st.target}
         if kind == "tbd":
-            call["name"] = name
+            part["name"] = name
         elif kind == "ref":
-            call.update({"id": pid, "key": skey})
+            part.update({"id": pid, "key": skey})
             paths, where = r.find(pid, path)
-            call["found"] = bool(paths)
+            part["found"] = bool(paths)
             if not paths:
-                call["searched"] = where
+                part["searched"] = where
             else:
-                child = paths[0]
+                found = paths[0]
                 if len(paths) > 1:
-                    call["candidates"] = paths
-                cd = r.load(child)
-                call["scenarioFound"] = cd.model.scenario(skey) is not None
-                if _key(child) in here:
-                    call["cycle"] = True
-                    call["child"] = _brief(cd, r)
+                    part["candidates"] = paths
+                pd = r.load(found)
+                part["scenarioFound"] = pd.model.scenario(skey) is not None
+                if _key(found) in here:
+                    part["cycle"] = True
+                    part["participant"] = _brief(pd, r)
                 elif depth >= MAX_DEPTH:
-                    call["truncated"] = True
-                    call["child"] = _brief(cd, r)
+                    part["truncated"] = True
+                    part["participant"] = _brief(pd, r)
                 else:
-                    call["child"] = _node(child, r, here, depth + 1)
-        node["calls"].append(call)
+                    part["participant"] = _node(found, r, here, depth + 1)
+        node["participations"].append(part)
     return node
 
 
 def walk(node, trail=()):
-    """(node, call, trail) for every call in the tree, depth first. `trail` is the ids
-    and calls from the top down to the node holding the call."""
-    for call in node.get("calls", []):
-        yield node, call, trail
-        child = call.get("child")
-        if child and not call.get("cycle") and not call.get("truncated"):
-            yield from walk(child, trail + ((node, call),))
+    """(node, participation, trail) for every participation in the tree, depth first.
+    `trail` is the nodes and participations from the top down to the node holding it."""
+    for part in node.get("participations", []):
+        yield node, part, trail
+        sub = part.get("participant")
+        if sub and not part.get("cycle") and not part.get("truncated"):
+            yield from walk(sub, trail + ((node, part),))
 
 
 def summary(t: dict) -> dict:
-    direct = len(t.get("calls", []))
+    direct = len(t.get("participations", []))
     patterns, opened, cycles, missing, depth = set(), 0, 0, 0, 0
-    for _node_, call, trail in walk(t):
+    for _node_, part, trail in walk(t):
         depth = max(depth, len(trail) + 1)
-        if call["kind"] == "tbd":
+        if part["kind"] == "tbd":
             opened += 1
-        if call.get("cycle"):
+        if part.get("cycle"):
             cycles += 1
-        if call["kind"] == "ref" and not call.get("found"):
+        if part["kind"] == "ref" and not part.get("found"):
             missing += 1
-        if call.get("child"):
-            patterns.add(_key(call["child"]["doc"]))
-    return {"callouts": direct, "patterns": len(patterns), "open": opened,
+        if part.get("participant"):
+            patterns.add(_key(part["participant"]["doc"]))
+    return {"participations": direct, "patterns": len(patterns), "open": opened,
             "cycles": cycles, "missing": missing, "depth": depth}
 
 
 def summary_line(s: dict) -> str:
-    parts = [f"{s['callouts']} call-out(s) to {s['patterns']} pattern(s)",
-             f"depth {s['depth']}"]
+    parts = [f"{s['participations']} participation step(s) running {s['patterns']} "
+             f"participating pattern(s)", f"depth {s['depth']}"]
     if s["open"]:
         parts.append(f"{s['open']} open (TBD)")
     if s["missing"]:
         parts.append(f"{s['missing']} not found")
     if s["cycles"]:
         parts.append(f"{s['cycles']} cycle(s)")
-    return "chain: " + ", ".join(parts)
+    return "composition: " + ", ".join(parts)
 
 
 def render(t: dict) -> list:
-    """The tree as indented text lines."""
+    """The composition tree as indented text lines."""
     def head(n):
         name = " ".join(x for x in (n["id"], n["title"]) if x) or os.path.basename(n["doc"])
         return f"{name} [{n['status'] or 'no status'}]"
@@ -313,26 +317,26 @@ def render(t: dict) -> list:
     lines = [head(t)]
 
     def rec(n, pad):
-        for c in n.get("calls", []):
-            at = f"{c['scenario']} step {c['step']}"
-            if c["kind"] == "tbd":
-                lines.append(f"{pad}{at} -> {c['uses']}  (open)")
-            elif c["kind"] == "invalid":
-                lines.append(f"{pad}{at} -> '{c['uses']}'  (not a call)")
-            elif not c.get("found"):
-                lines.append(f"{pad}{at} -> {c['uses']}  (not found under {c.get('searched')})")
+        for p in n.get("participations", []):
+            at = f"{p['scenario']} step {p['step']}"
+            if p["kind"] == "tbd":
+                lines.append(f"{pad}{at} runs {p['uses']}  (open participating pattern)")
+            elif p["kind"] == "invalid":
+                lines.append(f"{pad}{at} uses '{p['uses']}'  (not a pattern and scenario)")
+            elif not p.get("found"):
+                lines.append(f"{pad}{at} runs {p['uses']}  (not found under {p.get('searched')})")
             else:
-                ch = c["child"]
+                sub = p["participant"]
                 note = ""
-                if not c.get("scenarioFound"):
-                    note += f"  (no scenario {c['key']})"
-                if c.get("cycle"):
+                if not p.get("scenarioFound"):
+                    note += f"  (no scenario {p['key']})"
+                if p.get("cycle"):
                     note += "  (cycle)"
-                if c.get("truncated"):
+                if p.get("truncated"):
                     note += "  (too deep; not expanded)"
-                lines.append(f"{pad}{at} -> {c['key']} of {head(ch)}{note}")
-                if not c.get("cycle") and not c.get("truncated"):
-                    rec(ch, pad + "    ")
+                lines.append(f"{pad}{at} runs {p['key']} of {head(sub)}{note}")
+                if not p.get("cycle") and not p.get("truncated"):
+                    rec(sub, pad + "    ")
 
     rec(t, "  ")
     return lines
@@ -362,28 +366,29 @@ def _named(model, ident) -> str:
     return f"{ident} {n.label}".strip() if n and n.label else ident
 
 
-def _join(out, cfg, where, parent: Doc, box, child: Doc, cboxes, pid, skey, side):
-    """Warn when none of the child's candidate boxes corresponds to the parent's box.
+def _join(out, cfg, where, composite: Doc, box, participant: Doc, pboxes, pid, skey, side):
+    """Warn when none of the participating pattern's candidate boxes corresponds to the
+    composite pattern's box.
 
     Entry has one candidate, the first step's actor. Exit has two, the last step's actor
     and its target, because a flow often ends with the exit box making a final call to a
     helper: `Facade -> Policy engine: authorise` leaves at the facade."""
-    cboxes = [c for i, c in enumerate(cboxes) if c and c not in cboxes[:i]]
-    if not box or not cboxes:
+    pboxes = [c for i, c in enumerate(pboxes) if c and c not in pboxes[:i]]
+    if not box or not pboxes:
         return
-    mine = _canon(parent.model, parent.cfg, box)
-    if any(mine & _canon(child.model, child.cfg, c) for c in cboxes):
+    mine = _canon(composite.model, composite.cfg, box)
+    if any(mine & _canon(participant.model, participant.cfg, c) for c in pboxes):
         return
     verb = "enters" if side == "entry" else "leaves"
-    there = " or ".join(_named(child.model, c) for c in cboxes)
-    _add(out, cfg, "chain_join",
+    there = " or ".join(_named(participant.model, c) for c in pboxes)
+    _add(out, cfg, "participant_join",
          f"{pid} {skey} {verb} at {there} there, which cannot be matched to "
-         f"{_named(parent.model, box)} here. Map the local box in Catalogue Mapping to the "
+         f"{_named(composite.model, box)} here. Map the local box in Catalogue Mapping to the "
          f"catalogue id it realises, or use the same catalogue id in both patterns", where)
 
 
 def findings(m, cfg, resolver=None) -> list:
-    """Every chain finding for one document. Empty, and nothing read, without Uses."""
+    """Every composition finding for one document. Empty, and nothing read, without Uses."""
     if not any(st.uses for sc in m.scenarios for st in sc.steps):
         return []
     src = m.source or ""
@@ -391,91 +396,94 @@ def findings(m, cfg, resolver=None) -> list:
         return []
     r = resolver or Resolver(cfg)
     t = tree(src, resolver=r, model=m)
-    parent = r.load(src)
+    composite = r.load(src)
     out = []
 
-    for call in t["calls"]:
-        where = f"{call['scenario']} step {call['step']}"
-        if call["kind"] == "invalid":
-            _add(out, cfg, "chain_uses_invalid",
-                 f"Uses '{call['uses']}' is neither a pattern id and scenario key, such as "
+    for part in t["participations"]:
+        where = f"{part['scenario']} step {part['step']}"
+        if part["kind"] == "invalid":
+            _add(out, cfg, "uses_invalid",
+                 f"Uses '{part['uses']}' is neither a pattern id and scenario key, such as "
                  f"PAT-905 S1, nor TBD and a name", where)
             continue
-        if not call["actor"] or not call["target"]:
-            _add(out, cfg, "chain_step_endpoints",
-                 f"calls {call['uses']} but has no "
-                 f"{'Actor' if not call['actor'] else 'Target'}; a Uses step needs both, the "
-                 f"boxes where the child flow enters and leaves this pattern", where)
-        if call["kind"] == "tbd":
-            _add(out, cfg, "chain_open",
-                 f"open sub-flow {call['uses']}: write it as its own pattern, then replace "
-                 f"TBD with its id and scenario key", where)
+        if not part["actor"] or not part["target"]:
+            _add(out, cfg, "uses_step_endpoints",
+                 f"runs {part['uses']} but has no "
+                 f"{'Actor' if not part['actor'] else 'Target'}; a participation step needs "
+                 f"both, the boxes where the participating pattern's flow enters and leaves "
+                 f"this pattern", where)
+        if part["kind"] == "tbd":
+            _add(out, cfg, "participant_open",
+                 f"open participating pattern {part['uses']}: write it as its own pattern, "
+                 f"then replace TBD with its id and scenario key", where)
             continue
-        pid, skey = call["id"], call["key"]
-        if not call["found"]:
-            _add(out, cfg, "chain_child_missing",
-                 f"no document for {pid} under {call['searched']}; a child is a folder named "
-                 f"{pid}-<slug> holding index.md, or a document whose H1 starts with {pid}. "
-                 f"Bind patterns_root if the patterns live elsewhere", where)
+        pid, skey = part["id"], part["key"]
+        if not part["found"]:
+            _add(out, cfg, "participant_missing",
+                 f"no document for the participating pattern {pid} under {part['searched']}; "
+                 f"it is a folder named {pid}-<slug> holding index.md, or a document whose "
+                 f"H1 starts with {pid}. Bind patterns_root if the patterns live elsewhere",
+                 where)
             continue
-        if call.get("candidates"):
-            _add(out, cfg, "chain_ambiguous",
-                 f"{len(call['candidates'])} documents claim {pid}; using "
-                 f"{os.path.relpath(call['candidates'][0], os.path.dirname(src))}", where)
-        child = r.load(call["child"]["doc"])
-        csc = child.model.scenario(skey)
-        if csc is None:
-            have = ", ".join(s.key for s in child.model.scenarios) or "none"
-            _add(out, cfg, "chain_scenario_missing",
+        if part.get("candidates"):
+            _add(out, cfg, "participant_ambiguous",
+                 f"{len(part['candidates'])} documents claim {pid}; using "
+                 f"{os.path.relpath(part['candidates'][0], os.path.dirname(src))}", where)
+        participant = r.load(part["participant"]["doc"])
+        psc = participant.model.scenario(skey)
+        if psc is None:
+            have = ", ".join(s.key for s in participant.model.scenarios) or "none"
+            _add(out, cfg, "participant_scenario_missing",
                  f"{pid} has no scenario {skey}; it has {have}", where)
             continue
-        if csc.steps:
-            first, last = csc.steps[0], csc.steps[-1]
-            _join(out, cfg, where, parent, call["actor"], child, [first.actor], pid, skey,
-                  "entry")
-            _join(out, cfg, where, parent, call["target"], child, [last.actor, last.target],
-                  pid, skey, "exit")
+        if psc.steps:
+            first, last = psc.steps[0], psc.steps[-1]
+            _join(out, cfg, where, composite, part["actor"], participant, [first.actor],
+                  pid, skey, "entry")
+            _join(out, cfg, where, composite, part["target"], participant,
+                  [last.actor, last.target], pid, skey, "exit")
 
-    # Cycles anywhere below: the chain does not terminate.
+    # Cycles anywhere below: the composition does not terminate.
     seen = set()
-    for _n, call, trail in walk(t):
-        if not call.get("cycle"):
+    for _n, part, trail in walk(t):
+        if not part.get("cycle"):
             continue
-        hops = [f"{n['id'] or os.path.basename(n['doc'])} {c['scenario']} step {c['step']}"
-                for n, c in trail] + [f"{_n['id'] or os.path.basename(_n['doc'])} "
-                                      f"{call['scenario']} step {call['step']}"]
-        msg = " -> ".join(hops) + f" -> {call['uses']}"
+        hops = [f"{n['id'] or os.path.basename(n['doc'])} {p['scenario']} step {p['step']}"
+                for n, p in trail] + [f"{_n['id'] or os.path.basename(_n['doc'])} "
+                                      f"{part['scenario']} step {part['step']}"]
+        msg = " -> ".join(hops) + f" -> {part['uses']}"
         if msg not in seen:
             seen.add(msg)
-            top = trail[0][1] if trail else call
-            _add(out, cfg, "chain_cycle",
-                 f"a chain cycle: {msg}, which is already on the path; a pattern cannot "
-                 f"reach itself through Uses", f"{top['scenario']} step {top['step']}")
+            top = trail[0][1] if trail else part
+            _add(out, cfg, "composition_cycle",
+                 f"a composition cycle: {msg}, which is already on the path; a pattern "
+                 f"cannot run itself through Uses", f"{top['scenario']} step {top['step']}")
 
     # The approval gate: an approved pattern cannot rest on unapproved or unwritten work.
-    if r.approved(parent.status):
-        me = parent.id or os.path.basename(src)
+    if r.approved(composite.status):
+        me = composite.id or os.path.basename(src)
         flagged = set()
-        for n, call, trail in walk(t):
-            top = trail[0][1] if trail else call
+        for n, part, trail in walk(t):
+            top = trail[0][1] if trail else part
             where = f"{top['scenario']} step {top['step']}"
             via = f" through {n['id']}" if trail else ""
-            if call["kind"] == "tbd":
-                _add(out, cfg, "chain_unapproved",
-                     f"{me} is {parent.status} but rests on the open sub-flow "
-                     f"{call['uses']}{via}", where)
-            elif call["kind"] == "ref" and not call.get("found"):
+            if part["kind"] == "tbd":
+                _add(out, cfg, "participant_unapproved",
+                     f"{me} is {composite.status} but rests on the open participating "
+                     f"pattern {part['uses']}{via}", where)
+            elif part["kind"] == "ref" and not part.get("found"):
                 if trail:
-                    _add(out, cfg, "chain_unapproved",
-                         f"{me} is {parent.status} but rests on {call['uses']}{via}, which "
+                    _add(out, cfg, "participant_unapproved",
+                         f"{me} is {composite.status} but rests on {part['uses']}{via}, which "
                          f"cannot be found", where)
-            elif call.get("child"):
-                ch = call["child"]
-                k = _key(ch["doc"])
-                if not ch["approved"] and k not in flagged and k != _key(src):
+            elif part.get("participant"):
+                sub = part["participant"]
+                k = _key(sub["doc"])
+                if not sub["approved"] and k not in flagged and k != _key(src):
                     flagged.add(k)
-                    _add(out, cfg, "chain_unapproved",
-                         f"{me} is {parent.status} but rests on {ch['id'] or ch['doc']}, "
-                         f"which is {ch['status'] or 'without a status'}{via}; approved "
-                         f"statuses are {', '.join(cfg.approved_statuses)}", where)
+                    _add(out, cfg, "participant_unapproved",
+                         f"{me} is {composite.status} but rests on the participating pattern "
+                         f"{sub['id'] or sub['doc']}, which is "
+                         f"{sub['status'] or 'without a status'}{via}; approved statuses are "
+                         f"{', '.join(cfg.approved_statuses)}", where)
     return out

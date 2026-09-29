@@ -5,7 +5,7 @@ node_id_attrs = ["node_id"]
 edge_id_attr  = "edge_id"
 group_attr    = "group"
 kind_attr     = "kind"
-# Optional. Where a scenario step's Uses finds the model it calls, what its id looks like,
+# Optional. Where a participation step's Uses finds the participating pattern, what its id looks like,
 # and which front matter statuses the approval gate counts as approved.
 # patterns_root     = "patterns"
 # pattern_id        = '[A-Z]{2,5}-[0-9]{3}'

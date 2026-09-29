@@ -38,8 +38,8 @@ NODE_W, NODE_H = 220, 80
 COL_GAP, ROW_GAP = 120, 48
 MARGIN = 80
 BADGE = 30
-# A step that calls another pattern's scenario: one arrow standing for a whole child flow,
-# so it is drawn heavier and dash-dotted, and labelled with the call, `3: PAT-905 S1`.
+# A participation step: one arrow standing for a whole participating pattern's flow,
+# so it is drawn heavier and dash-dotted, and labelled with what it runs, `3: PAT-905 S1`.
 FLOW_USES_STYLE = ("edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;"
                    "dashPattern=12 4 2 4;strokeWidth=3;strokeColor=#C25B54;"
                    "fontColor=#C25B54;fontSize=12;fontStyle=1;")

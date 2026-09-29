@@ -60,8 +60,9 @@ class Step:
     action: str = ""
     edge: str = ""           # edge id the step traverses, when it traverses one
     target: str = ""         # node id, when the step is a transition
-    # A call-out to another pattern's scenario, `PAT-905 S1`, or `TBD <name>` for a child
-    # flow not yet written. Actor and Target are where the child enters and leaves.
+    # The participating pattern's scenario this step runs, `PAT-905 S1`, or `TBD <name>`
+    # for an open participating pattern. Actor and Target are where its flow enters and
+    # leaves.
     uses: str = ""
     attrs: dict = field(default_factory=dict)
 
