@@ -101,7 +101,7 @@ This repository's `NOTICE` records where its skills came from: it is derived fro
 
 How you give back depends on how you took the skills.
 
-### You copied the skills into another repository or an internal skills library
+### You copied the skills into another repository or skills library
 
 A copy does not track this repository: it stays at the version you copied until you copy again.
 
