@@ -77,6 +77,11 @@ DEFAULT_RULES = {
     "link_unresolved": "warn",        # a link rule matches an id but its page is not found
     "scenario_start_finish": "error", # a declared Start or Finish the steps do not bear out
     "step_uses_mismatch": "warn",     # the document's Uses differs from the diagram's
+    # Pattern types, [suite.pattern.types.<name>]: see pattern_types.py.
+    "pattern_type_unknown": "error",  # a declared pattern_type that is not a bound type
+    "pattern_type_series": "warn",    # a type's document numbered in another series
+    "pattern_type_physical": "warn",  # more or fewer physical boxes than the type allows
+    "implements_missing": "warn",     # front matter implements an id with no document
 }
 
 # A pattern's identifier, as a Uses cell names it: `PAT-905 S1`.
@@ -167,6 +172,14 @@ KIND_LEVELS = {
 
 
 @dataclass
+class PatternType:
+    """One kind of pattern a repository names: see pattern_types.py."""
+    label: str = ""
+    id_series: str = ""
+    physical: str = ""     # none, some, most, all; empty allows any mix
+
+
+@dataclass
 class Config:
     # draw.io attribute names
     # Not "id": draw.io owns that attribute on an <object>, so an identifier held there
@@ -193,6 +206,7 @@ class Config:
     register_from: str = ""
     pattern_id: str = DEFAULT_PATTERN_ID
     approved_statuses: tuple = DEFAULT_APPROVED
+    pattern_types: dict = field(default_factory=dict)   # name -> PatternType
     # validation
     catalogues: list = field(default_factory=list)
     # links from a declared identifier to its page: [model] link_site and link_target, and
@@ -385,6 +399,17 @@ def load(path: str | None, near: str | None = None) -> Config:
         re.compile(cfg.pattern_id)
     except re.error as ex:
         raise SystemExit(f"  ! {path}: pattern_id is not a valid regex: {ex}")
+    from .pattern_types import PHYSICAL
+    for name, t in (pat.get("types") or {}).items():
+        if not isinstance(t, dict):
+            raise SystemExit(f"  ! {path}: [suite.pattern.types.{name}] must be a table")
+        physical = str(t.get("physical", "") or "")
+        if physical and physical not in PHYSICAL:
+            raise SystemExit(f"  ! {path}: [suite.pattern.types.{name}] physical is "
+                             f"'{physical}'; expected one of {', '.join(PHYSICAL)}")
+        cfg.pattern_types[str(name)] = PatternType(
+            label=str(t.get("label", "") or ""), id_series=str(t.get("idSeries", "") or ""),
+            physical=physical)
     approved = m.get("approved_statuses", pat.get("approvedStatuses"))
     if approved is not None:
         if isinstance(approved, str):

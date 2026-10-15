@@ -248,4 +248,8 @@ Every finding ends with its rule id. Change a rule's severity in `[rules]` ([con
 | `participant_binding` | error | A binding names a box that is not there, or one box twice | Fix the binding |
 | `scenario_start_finish` | error | A declared Start or Finish the steps do not bear out | Fix the declaration or the steps |
 | `step_uses_mismatch` | warn | The diagram's Uses or regions differ from the document's | `sync` |
+| `pattern_type_physical` | warn | The document's boxes do not fit its type's `physical`, such as an SBB in a technology-agnostic pattern | Replace the box with the ABB it realises, or change the document's type and series |
+| `pattern_type_series` | warn | A `pattern_type` whose `idSeries` is not the one the document's identifier carries | Renumber the document in its type's series, or correct `pattern_type` |
+| `pattern_type_unknown` | error | A `pattern_type` that is not in `[suite.pattern.types]` | Use a bound type, or bind it |
+| `implements_missing` | warn | Front matter `implements` names an identifier with no document | Fix the identifier, or write the pattern |
 | `link_unresolved` | warn | A `[[links]]` rule matches an id but its `locate` glob finds nothing | Fix the glob, or create the page |

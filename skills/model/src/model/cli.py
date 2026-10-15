@@ -90,7 +90,7 @@ def cmd_validate(a) -> int:
         other = None
         findings = (validate_mod.structural(primary, cfg) + validate_mod.catalogue(primary, cfg)
                     + validate_mod.mapping(primary, cfg) + validate_mod.composition(primary, cfg)
-                    + validate_mod.links(primary, cfg))
+                    + validate_mod.links(primary, cfg) + validate_mod.pattern_types(primary, cfg))
 
     # A composite pattern, whose scenarios run other patterns, gets a one-line summary of
     # its composition; `model composition` prints the tree.
