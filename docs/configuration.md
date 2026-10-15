@@ -40,12 +40,15 @@ draw.io attribute names, local identifiers, composition and links.
 | `local_prefix` | string | `""` | A reserved prefix for local identifiers followed by two or three digits, as in `"LOC-"`. Both empty means no local identifiers |
 | `local_attr` | string | `"local_id"` | The attribute carrying a local identifier. Its cell id is `local-<id>` |
 | `patterns_root` | path | `""` | Where participating patterns are found for `Uses`. See precedence below |
+| `register` | path | `""` | A CSV register of pattern ids and their folders, read before `patterns_root`. See below |
 | `pattern_id` | regex string | `'[A-Z]{2,5}-[0-9]{3}'` | What a participating pattern's identifier looks like in a `Uses` cell |
 | `approved_statuses` | list of strings, or a comma-separated string | `["Final", "Approved", "Active", "Published"]` | Front matter `status` values the composition's approval gate counts as approved, compared without regard to case |
 | `link_site` | string | `""` | Substituted for `{site}` in `[[links]]` hrefs, without a trailing slash |
 | `link_target` | `"new"` or `"same"` | `"new"` | Where a link opens: a new tab, or in place. Anything else is a configuration error |
 
 Before 0.8.1 the default for `node_id_attrs` was `["id"]`, which draw.io reserves, so a diagram emitted with no binding file could not be read. Bind `node_id_attrs` explicitly when a workspace must work with 0.8.0 or earlier.
+
+A register is read first: `[model] register`, else `[suite.pattern] register`. It is a CSV whose `id` column, or its first column if none is named `id`, holds the pattern's identifier, and whose `path` column holds its folder or its document, relative to the register file. Other columns are ignored. A row whose path does not exist is passed over, so a pattern moved without updating its row is still found by the search below; the pattern skill's `register.py check --fix` corrects the row. `doctor` prints the register and fails if it does not exist.
 
 Precedence for `patterns_root`: `[model] patterns_root`, then `[suite.pattern] patternsRoot`, then `[suite.pattern] outputDir`. With none, each folder from the composite pattern upward is searched two levels deep, stopping at the repository root. For `approved_statuses`: `[model] approved_statuses`, then `[suite.pattern] approvedStatuses`, then the default.
 

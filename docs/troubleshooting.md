@@ -72,6 +72,10 @@ A declared catalogue cannot be used, reported by `doctor` and as `catalogue_unre
 
 `[model] patterns_root`, or the `[suite.pattern]` key it fell back to, names a missing folder. `doctor` prints which key supplied it.
 
+### `the register <path> does not exist`
+
+`[model] register`, or `[suite.pattern] register`, names a file that is not there. The path is relative to the binding file.
+
 ## Reading inputs
 
 ### The model is empty
@@ -234,7 +238,7 @@ Every finding ends with its rule id. Change a rule's severity in `[rules]` ([con
 | `mapping_duplicates_node` | warn | A local node realises a block also drawn here: one concept, two boxes | Remove one |
 | `uses_invalid` | error | A Uses cell that is neither `<ID> <KEY>` nor `TBD <name>`, or a malformed binding | See [composition](../skills/model/references/composition.md) |
 | `uses_step_endpoints` | error | A participation step without an Actor or a Target | Fill in both |
-| `participant_missing` | error | No document for the participating pattern | Create it, or bind `patterns_root` |
+| `participant_missing` | error | No document for the participating pattern | Create it, bind `patterns_root`, or give it a row with its `path` in the register |
 | `participant_scenario_missing` | error | The participating pattern has no such scenario | Fix the key |
 | `participant_ambiguous` | warn | Two documents claim one id; the first is used | Rename one |
 | `composition_cycle` | error | A pattern that reaches itself through Uses | Break the loop |

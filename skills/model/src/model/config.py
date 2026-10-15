@@ -189,6 +189,8 @@ class Config:
     # which front matter statuses count as approved
     patterns_root: str = ""
     patterns_root_from: str = ""   # which binding supplied it, for doctor and messages
+    register: str = ""             # a CSV of ids and their paths, read before any folder
+    register_from: str = ""
     pattern_id: str = DEFAULT_PATTERN_ID
     approved_statuses: tuple = DEFAULT_APPROVED
     # validation
@@ -372,6 +374,11 @@ def load(path: str | None, near: str | None = None) -> Config:
                      ("suite.pattern.outputDir", pat.get("outputDir"))):
         if val:
             cfg.patterns_root, cfg.patterns_root_from = str(val), src
+            break
+    for src, val in (("model.register", m.get("register")),
+                     ("suite.pattern.register", pat.get("register"))):
+        if val:
+            cfg.register, cfg.register_from = str(val), src
             break
     cfg.pattern_id = str(m.get("pattern_id") or cfg.pattern_id)
     try:

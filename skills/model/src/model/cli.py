@@ -316,6 +316,8 @@ def cmd_doctor(a) -> int:
         print(f"  identifiers  : {payload['catalogueIdentifiers']}")
         ch = payload.get("composition") or {}
         print(f"  patterns root: {ch.get('patternsRoot') or '(unbound)'}  [{ch.get('from')}]")
+        if ch.get("register"):
+            print(f"  register     : {ch['register']}  [{ch.get('registerFrom')}]")
         print(f"  approved     : {', '.join(ch.get('approvedStatuses') or [])}")
         lk = payload.get("links") or {}
         if lk.get("rules"):
