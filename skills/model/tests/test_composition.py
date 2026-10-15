@@ -418,6 +418,54 @@ class RootTests(Base):
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(out)["result"], "error")
 
+    # The register: a CSV of ids and their folders, read before any folder is searched.
+
+    def register(self, rows, header="id,type,name,path"):
+        self.write("registers/catalogue.csv", "\n".join([header, *rows]) + "\n")
+
+    def test_register_finds_it_without_a_root(self):
+        self.register(["PAT-905,pattern,Payment capture,../library/deep/er/PAT-905-payment-capture"])
+        self.bind(suite='[suite.pattern]\nregister = "registers/catalogue.csv"\n')
+        self.assertEqual(self.composition_rules(), [])
+        self.assertEqual(self.cfg().register_from, "suite.pattern.register")
+
+    def test_register_path_may_name_the_document(self):
+        self.register(["PAT-905,pattern,Payment capture,"
+                       "../library/deep/er/PAT-905-payment-capture/index.md"])
+        self.bind(extra='register = "registers/catalogue.csv"')
+        self.assertEqual(self.composition_rules(), [])
+        self.assertEqual(self.cfg().register_from, "model.register")
+
+    def test_register_id_column_defaults_to_the_first(self):
+        self.register(["PAT-905,../library/deep/er/PAT-905-payment-capture"], header="pattern,path")
+        self.bind(suite='[suite.pattern]\nregister = "registers/catalogue.csv"\n')
+        self.assertEqual(self.composition_rules(), [])
+
+    def test_a_stale_register_path_falls_back_to_the_root(self):
+        self.register(["PAT-905,pattern,Payment capture,../patterns/PAT-905-payment-capture"])
+        self.bind(suite='[suite.pattern]\nregister = "registers/catalogue.csv"\n'
+                        'patternsRoot = "library"\n')
+        self.assertEqual(self.composition_rules(), [])
+
+    def test_a_stale_register_path_alone_finds_nothing(self):
+        self.register(["PAT-905,pattern,Payment capture,../patterns/PAT-905-payment-capture"])
+        self.bind(suite='[suite.pattern]\nregister = "registers/catalogue.csv"\n')
+        self.assertIn(("participant_missing", "error"), self.rules())
+
+    def test_doctor_reports_the_register(self):
+        self.register([])
+        self.bind(suite='[suite.pattern]\nregister = "registers/catalogue.csv"\n')
+        code, out, _err = self.cli("doctor", "--near", self.dir, "--json")
+        ch = json.loads(out)["composition"]
+        self.assertEqual(ch["register"], os.path.join(self.dir, "registers", "catalogue.csv"))
+        self.assertEqual(ch["registerFrom"], "suite.pattern.register")
+
+    def test_doctor_fails_on_a_missing_register(self):
+        self.bind(suite='[suite.pattern]\nregister = "registers/none.csv"\n')
+        code, out, _err = self.cli("doctor", "--near", self.dir, "--json")
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["result"], "error")
+
 
 # ------------------------------------------------------------------ composition report
 

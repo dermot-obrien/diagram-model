@@ -40,12 +40,15 @@ draw.io attribute names, local identifiers, composition and links.
 | `local_prefix` | string | `""` | A reserved prefix for local identifiers followed by two or three digits, as in `"LOC-"`. Both empty means no local identifiers |
 | `local_attr` | string | `"local_id"` | The attribute carrying a local identifier. Its cell id is `local-<id>` |
 | `patterns_root` | path | `""` | Where participating patterns are found for `Uses`. See precedence below |
+| `register` | path | `""` | A CSV register of pattern ids and their folders, read before `patterns_root`. See below |
 | `pattern_id` | regex string | `'[A-Z]{2,5}-[0-9]{3}'` | What a participating pattern's identifier looks like in a `Uses` cell |
 | `approved_statuses` | list of strings, or a comma-separated string | `["Final", "Approved", "Active", "Published"]` | Front matter `status` values the composition's approval gate counts as approved, compared without regard to case |
 | `link_site` | string | `""` | Substituted for `{site}` in `[[links]]` hrefs, without a trailing slash |
 | `link_target` | `"new"` or `"same"` | `"new"` | Where a link opens: a new tab, or in place. Anything else is a configuration error |
 
 Before 0.8.1 the default for `node_id_attrs` was `["id"]`, which draw.io reserves, so a diagram emitted with no binding file could not be read. Bind `node_id_attrs` explicitly when a workspace must work with 0.8.0 or earlier.
+
+A register is read first: `[model] register`, else `[suite.pattern] register`. It is a CSV whose `id` column, or its first column if none is named `id`, holds the pattern's identifier, and whose `path` column holds its folder or its document, relative to the register file. Other columns are ignored. A row whose path does not exist is passed over, so a pattern moved without updating its row is still found by the search below; the pattern skill's `register.py check --fix` corrects the row. `doctor` prints the register and fails if it does not exist.
 
 Precedence for `patterns_root`: `[model] patterns_root`, then `[suite.pattern] patternsRoot`, then `[suite.pattern] outputDir`. With none, each folder from the composite pattern upward is searched two levels deep, stopping at the repository root. For `approved_statuses`: `[model] approved_statuses`, then `[suite.pattern] approvedStatuses`, then the default.
 
@@ -211,12 +214,36 @@ href   = "https://docs.example.org/services/{located}/"
 
 ## [suite.&lt;skill&gt;]
 
-Bindings for other skills in the suite. The `model` skill carries them untouched, except that it reads `[suite.pattern] patternsRoot`, `outputDir` and `approvedStatuses` as fallbacks (above), and `doctor --skill <name>` checks `[suite.<name>]` against that skill's `inputs.toml`.
+Bindings for other skills in the suite. The `model` skill carries them untouched, except that it reads `[suite.pattern] patternsRoot`, `outputDir`, `register` and `approvedStatuses` as fallbacks (above) and `[suite.pattern.types]` (below), and `doctor --skill <name>` checks `[suite.<name>]` against that skill's `inputs.toml`.
 
 ```toml
 [suite.pattern]
 outputDir = "../patterns"
 ```
+
+### Pattern types
+
+A repository may name its kinds of pattern, each with its own label, identifier series and expectation of how physical it is. A practice that calls a technology-agnostic pattern an architecture pattern and a technology-specific one a reference architecture binds:
+
+```toml
+[suite.pattern.types.architecture-pattern]
+label    = "Architecture pattern"
+idSeries = "AP"
+physical = "none"     # ABBs and local roles only
+
+[suite.pattern.types.reference-architecture]
+label    = "Reference architecture"
+idSeries = "RA"
+physical = "most"     # mainly SBBs and products
+```
+
+| Key | Meaning |
+|---|---|
+| `label` | What readers call it, in messages |
+| `idSeries` | The prefix of its identifiers. A document numbered in it is of this type unless its front matter says otherwise |
+| `physical` | `none`, `some` (at least one), `most` (more than half of the boxes with a level) or `all`. Unset allows any mix |
+
+A physical box is one whose abstraction is physical: an identifier from a `[[catalogues]]` entry whose `level` is `physical`, such as an SBB or product catalogue, or a box whose kind is `product` or `physical`. `validate` reports `pattern_type_physical` when a document's boxes do not fit its type, `pattern_type_series` when a declared type's document carries another series' identifier, and `pattern_type_unknown` for a `pattern_type` that is not bound. A document of no bound type, such as a use case, is not checked.
 
 ## Front matter
 
@@ -227,6 +254,8 @@ Read from a document's YAML front matter; flat keys and one level of nesting.
 | `title` | string | The model's name, and the draw.io page name `emit` writes |
 | `version` | string | Carried into the model |
 | `status` | string | Compared with `approved_statuses` by the composition's approval gate |
+| `pattern_type` | string | One of `[suite.pattern.types]`. Unset, the type whose `idSeries` the document's identifier carries |
+| `implements` | list of identifiers | The patterns this one makes concrete, as a reference architecture names the architecture pattern it implements: `implements: [AP-004]`. Each is looked up as a participating pattern is; one with no document is `implements_missing` |
 | `model.diagram` | path, relative to the document | The diagram this document is paired with. Used by `validate` without `--against`, `rename` without `--drawio`, `animate` without `--diagram`, and `scan` |
 
 ```yaml

@@ -19,7 +19,10 @@ What is checked, and why each is what it is:
     approved composite pattern over an unapproved   an error: an approved pattern cannot
     participating pattern                           rest on unapproved or unwritten work
 
-Where participating patterns are found. A bound root, `[model] patterns_root`, else
+Where participating patterns are found. A register, `[model] register` else
+`[suite.pattern] register`, is read first: a CSV whose `id` column (else its first) holds
+the pattern's id and whose `path` column its folder or document, relative to the register.
+A row whose path does not exist is passed over. Then a bound root, `[model] patterns_root`, else
 `[suite.pattern] patternsRoot`, else `[suite.pattern] outputDir`, is searched to any
 depth. With none, each folder from the composite pattern's own upward is searched two
 levels deep, and the first that holds the id wins; the search stops at the repository
@@ -32,6 +35,7 @@ untouched by it.
 """
 from __future__ import annotations
 
+import csv
 import os
 import re
 
@@ -98,6 +102,7 @@ class Resolver:
         self._index = {}
         self._docs = {}
         self._cfgs = {}
+        self._register = None
 
     # ------------------------------------------------------------------ settings
 
@@ -109,13 +114,21 @@ class Resolver:
         s = str(status or "").strip().lower()
         return bool(s) and s in {a.strip().lower() for a in self.cfg.approved_statuses}
 
+    @property
+    def register_path(self) -> str:
+        return self.cfg.resolve(self.cfg.register) if self.cfg.register else ""
+
     def describe(self) -> dict:
         """Where participating patterns are looked for, for doctor and the report."""
+        reg = {}
+        if self.register_path:
+            reg = {"register": self.register_path, "registerFrom": self.cfg.register_from,
+                   "registerExists": os.path.isfile(self.register_path)}
         if self.root:
             return {"patternsRoot": self.root, "from": self.cfg.patterns_root_from,
-                    "exists": os.path.isdir(self.root)}
+                    "exists": os.path.isdir(self.root), **reg}
         return {"patternsRoot": "", "from": "ancestors of each document, two levels deep",
-                "exists": None}
+                "exists": None, **reg}
 
     # ------------------------------------------------------------------ finding
 
@@ -165,6 +178,40 @@ class Resolver:
         self._index[k] = found
         return found
 
+    def registered(self) -> dict:
+        """{pattern id: document path} from the register's rows whose path exists."""
+        if self._register is not None:
+            return self._register
+        self._register = {}
+        reg = self.register_path
+        if not reg or not os.path.isfile(reg):
+            return self._register
+        try:
+            with open(reg, encoding="utf-8-sig", newline="") as fh:
+                rows = list(csv.reader(fh))
+        except (OSError, UnicodeDecodeError, csv.Error):
+            return self._register
+        if not rows:
+            return self._register
+        head = [h.strip().lower() for h in rows[0]]
+        id_col = head.index("id") if "id" in head else 0
+        if "path" not in head:
+            return self._register
+        path_col = head.index("path")
+        base = os.path.dirname(reg)
+        for row in rows[1:]:
+            if len(row) <= max(id_col, path_col):
+                continue
+            pid, rel = row[id_col].strip(), row[path_col].strip()
+            if not pid or not rel:
+                continue
+            p = os.path.normpath(os.path.join(base, rel))
+            if os.path.isdir(p):
+                p = os.path.join(p, "index.md")
+            if os.path.isfile(p) and pid not in self._register:
+                self._register[pid] = os.path.abspath(p)
+        return self._register
+
     def _stop_at(self) -> set:
         stops = set()
         if self.cfg.path:
@@ -174,6 +221,9 @@ class Resolver:
 
     def find(self, pid, near) -> tuple:
         """(paths, where searched) for a pattern id, from the document at `near`."""
+        hit = self.registered().get(pid)
+        if hit:
+            return [hit], self.register_path
         if self.root:
             return self.index(self.root).get(pid, []), self.root
         stops = self._stop_at()

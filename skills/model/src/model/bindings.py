@@ -336,6 +336,9 @@ def report(cfg, skill_dir: str, skill: str = "model") -> tuple:
     if search["patternsRoot"] and not search["exists"]:
         issues.append(Issue("error", search["from"],
                             f"the patterns root {search['patternsRoot']} does not exist"))
+    if search.get("register") and not search["registerExists"]:
+        issues.append(Issue("error", search["registerFrom"],
+                            f"the register {search['register']} does not exist"))
 
     # Links from declared identifiers to their pages, tried in order.
     payload["links"] = {

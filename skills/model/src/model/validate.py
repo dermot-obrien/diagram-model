@@ -332,10 +332,17 @@ def links(m: Model, cfg) -> list:
     return links_mod.findings(m, cfg)
 
 
+def pattern_types(m: Model, cfg) -> list:
+    """A document's pattern type against its boxes, and what it implements: see
+    pattern_types.py. Nothing is read when no types are bound and nothing is implemented."""
+    from . import pattern_types as types_mod
+    return types_mod.findings(m, cfg)
+
+
 def check(doc: Model, cfg, diagram: Model = None) -> list:
     """Every rule that applies to a document, and to its diagram when there is one."""
     findings = (structural(doc, cfg) + catalogue(doc, cfg) + mapping(doc, cfg)
-                + composition(doc, cfg) + links(doc, cfg))
+                + composition(doc, cfg) + links(doc, cfg) + pattern_types(doc, cfg))
     if diagram is not None:
         findings += [f for f in structural(diagram, cfg)
                      if f.rule in ("node_duplicate_id", "id_attr_mismatch",

@@ -90,7 +90,7 @@ def cmd_validate(a) -> int:
         other = None
         findings = (validate_mod.structural(primary, cfg) + validate_mod.catalogue(primary, cfg)
                     + validate_mod.mapping(primary, cfg) + validate_mod.composition(primary, cfg)
-                    + validate_mod.links(primary, cfg))
+                    + validate_mod.links(primary, cfg) + validate_mod.pattern_types(primary, cfg))
 
     # A composite pattern, whose scenarios run other patterns, gets a one-line summary of
     # its composition; `model composition` prints the tree.
@@ -137,6 +137,29 @@ def cmd_validate(a) -> int:
     if threshold == "warn" and findings:
         return 1
     return 1 if any(f.severity == "error" for f in findings) else 0
+
+
+def cmd_contract(a) -> int:
+    """Whether documents or templates have the structure the binding reads."""
+    from . import contract as contract_mod
+    results, worst = [], 0
+    for doc in a.files:
+        if not os.path.isfile(doc):
+            return _err(f"  ! {doc}: no such file")
+        cfg = config_mod.load(a.config, near=a.near or doc)
+        found = contract_mod.check(doc, cfg, a.type or "")
+        errs = sum(1 for f in found if f.severity == "error")
+        worst = max(worst, 1 if errs else 0)
+        results.append({"file": doc, "type": a.type or "", "result": validate_mod.worst(found),
+                        "findings": [f.to_dict() for f in found]})
+        if not a.json:
+            print(f"  {doc}: {validate_mod.worst(found) or 'ok'}"
+                  + (f" (as {a.type})" if a.type else ""))
+            for f in found:
+                print(f"    {f.severity:5} {f.message}  [{f.rule}]")
+    if a.json:
+        print(json.dumps({"results": results}, indent=2))
+    return worst
 
 
 def cmd_composition(a) -> int:
@@ -316,6 +339,8 @@ def cmd_doctor(a) -> int:
         print(f"  identifiers  : {payload['catalogueIdentifiers']}")
         ch = payload.get("composition") or {}
         print(f"  patterns root: {ch.get('patternsRoot') or '(unbound)'}  [{ch.get('from')}]")
+        if ch.get("register"):
+            print(f"  register     : {ch['register']}  [{ch.get('registerFrom')}]")
         print(f"  approved     : {', '.join(ch.get('approvedStatuses') or [])}")
         lk = payload.get("links") or {}
         if lk.get("rules"):
@@ -437,6 +462,13 @@ def build_parser():
     v.add_argument("--json", action="store_true", help="machine-readable output on stdout")
     v.add_argument("--fail-on", default="error", choices=("error", "warn", "never"))
     v.set_defaults(fn=cmd_validate)
+
+    ct = common(sub.add_parser("contract", help="check documents or templates have the sections and columns the binding reads"))
+    ct.add_argument("files", nargs="+", help=".md documents or templates")
+    ct.add_argument("--type", help="a pattern type bound under [suite.pattern.types]: also check the H1's series")
+    ct.add_argument("--near", help="read the binding file nearest this folder, as for a template kept outside the repository")
+    ct.add_argument("--json", action="store_true", help="machine-readable output on stdout")
+    ct.set_defaults(fn=cmd_contract)
 
     ch = common(sub.add_parser("composition", help="print the patterns a composite pattern's scenarios run"))
     ch.add_argument("doc", help="the .md document")

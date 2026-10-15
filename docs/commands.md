@@ -144,6 +144,22 @@ Each document is read with the binding file nearest to it, so one scan can start
 
 Prints one line per model, `result doc + diagram: summary; N error(s), N warning(s), N view(s)`, with up to 20 findings each, then the number of models and of documents that declare no diagram.
 
+## contract
+
+Whether documents or templates have the structure the binding reads: the construct, not the content. A repository that replaces a shipped template with its own runs this on the replacement.
+
+```
+python <model> contract <file>... [--type NAME] [--near DIR] [--json] [--config FILE]
+```
+
+| Option | Effect |
+|---|---|
+| `files` | Documents or templates. A table with a header and no rows counts |
+| `--type` | A pattern type bound under `[suite.pattern.types]`: also check the H1 leads with its `idSeries`, and that a declared `pattern_type` is that type |
+| `--near` | Read the binding file nearest this folder rather than the file's, for a template kept outside the repository, such as one shipped with a skill |
+
+It reports, as errors, a `[[markdown.tables]]` section that is missing (`contract_section`), has no table (`contract_table`) or lacks a bound column (`contract_columns`); a missing scenarios section, no heading its `heading_pattern` matches (`contract_scenario`), or a steps table without Step, Actor or Action; and a Catalogue Mapping table, when present, without its bound columns. A steps table without Target or Interface, and an H1 in the wrong series (`contract_series`), are warnings. Headings and columns match as `extract` matches them, without regard to case, with comments and fenced code ignored. Exit 1 if any file has an error.
+
 ## composition
 
 Print the patterns a composite pattern's scenarios run, recursively.

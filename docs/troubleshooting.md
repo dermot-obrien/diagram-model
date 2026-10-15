@@ -72,6 +72,10 @@ A declared catalogue cannot be used, reported by `doctor` and as `catalogue_unre
 
 `[model] patterns_root`, or the `[suite.pattern]` key it fell back to, names a missing folder. `doctor` prints which key supplied it.
 
+### `the register <path> does not exist`
+
+`[model] register`, or `[suite.pattern] register`, names a file that is not there. The path is relative to the binding file.
+
 ## Reading inputs
 
 ### The model is empty
@@ -234,7 +238,7 @@ Every finding ends with its rule id. Change a rule's severity in `[rules]` ([con
 | `mapping_duplicates_node` | warn | A local node realises a block also drawn here: one concept, two boxes | Remove one |
 | `uses_invalid` | error | A Uses cell that is neither `<ID> <KEY>` nor `TBD <name>`, or a malformed binding | See [composition](../skills/model/references/composition.md) |
 | `uses_step_endpoints` | error | A participation step without an Actor or a Target | Fill in both |
-| `participant_missing` | error | No document for the participating pattern | Create it, or bind `patterns_root` |
+| `participant_missing` | error | No document for the participating pattern | Create it, bind `patterns_root`, or give it a row with its `path` in the register |
 | `participant_scenario_missing` | error | The participating pattern has no such scenario | Fix the key |
 | `participant_ambiguous` | warn | Two documents claim one id; the first is used | Rename one |
 | `composition_cycle` | error | A pattern that reaches itself through Uses | Break the loop |
@@ -244,4 +248,10 @@ Every finding ends with its rule id. Change a rule's severity in `[rules]` ([con
 | `participant_binding` | error | A binding names a box that is not there, or one box twice | Fix the binding |
 | `scenario_start_finish` | error | A declared Start or Finish the steps do not bear out | Fix the declaration or the steps |
 | `step_uses_mismatch` | warn | The diagram's Uses or regions differ from the document's | `sync` |
+| `contract_section`, `contract_table`, `contract_columns`, `contract_scenario` | error | From `contract`: a template or document lacks a section, a table or a column the binding reads | Add it, or change the binding to match. Warnings name a steps table without Target or Interface |
+| `contract_series`, `contract_type` | warn, error | From `contract --type`: a template's H1 is not in its type's series, or it declares another type | Fix the H1 placeholder or `pattern_type` |
+| `pattern_type_physical` | warn | The document's boxes do not fit its type's `physical`, such as an SBB in a technology-agnostic pattern | Replace the box with the ABB it realises, or change the document's type and series |
+| `pattern_type_series` | warn | A `pattern_type` whose `idSeries` is not the one the document's identifier carries | Renumber the document in its type's series, or correct `pattern_type` |
+| `pattern_type_unknown` | error | A `pattern_type` that is not in `[suite.pattern.types]` | Use a bound type, or bind it |
+| `implements_missing` | warn | Front matter `implements` names an identifier with no document | Fix the identifier, or write the pattern |
 | `link_unresolved` | warn | A `[[links]]` rule matches an id but its `locate` glob finds nothing | Fix the glob, or create the page |
