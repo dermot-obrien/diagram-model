@@ -129,6 +129,13 @@ class ContractTests(unittest.TestCase):
                          [("contract_series", "warn")])
         self.assertEqual(self.rules(GOOD, "blueprint"), [("pattern_type_unknown", "error")])
 
+    def test_built_in_tables_are_alternatives(self):
+        self.write("skill-bindings.toml", 'bindingsVersion = "1.0"\n')
+        text = GOOD.replace("## Building Blocks", "## Components")
+        # A Components section is enough for the node table; its columns are then checked.
+        self.assertNotIn(("contract_section", "error"), self.rules(text))
+        self.assertEqual(self.rules(GOOD), [("contract_section", "error")])
+
     def test_cli_reads_the_binding_near_another_folder(self):
         elsewhere = tempfile.mkdtemp()
         try:

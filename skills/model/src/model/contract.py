@@ -68,11 +68,24 @@ def check(path, cfg, type_name: str = "") -> list:
     def add(sev, rule, msg):
         out.append(Finding(rule, sev, msg, path))
 
+    # Bound tables are each required. The built-in defaults are alternatives, Nodes or
+    # Components, Edges or Interfaces, so one section per entity is enough.
+    from .config import default_config
+    defaults = cfg.tables == default_config().tables
+    present = {t for _lv, t, _b in titles}
     for spec in cfg.tables:
         bodies = [b for _lv, t, b in titles if t == spec.section.strip().lower()]
         if not bodies:
-            add("error", "contract_section", f"no '{spec.section}' section, which the "
-                f"{spec.entity} table is read from")
+            alternatives = [x.section for x in cfg.tables if x.entity == spec.entity]
+            if defaults and any(x.strip().lower() in present for x in alternatives):
+                continue
+            add("error", "contract_section",
+                f"no '{spec.section}' section, which the {spec.entity} table is read from"
+                if not defaults else
+                f"no {' or '.join(repr(x) for x in alternatives)} section, which the built-in "
+                f"{spec.entity} table is read from; bind [[markdown.tables]] to match the template")
+            if defaults:
+                present.add(spec.section.strip().lower())   # report each entity once
             continue
         headers = [h for b in bodies for h in _headers(b)]
         miss = _missing(spec.columns, headers)
