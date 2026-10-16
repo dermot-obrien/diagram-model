@@ -212,6 +212,18 @@ class PageTests(Base):
         urls = set(re.findall(r"https?://[^\s\"')]+", html))
         self.assertEqual(urls, {"http://www.w3.org/2000/svg"})
 
+    def test_back_is_resolved_against_the_page_and_kept_on_its_origin(self):
+        # The back link is a query parameter, so the page resolves it as a URL and takes it
+        # only when it has the page's own scheme and origin: no javascript:, no other host.
+        out = os.path.join(self.dir, "scenarios.html")
+        animate.write(self.build(), out)
+        with open(out, encoding="utf-8") as fh:
+            html = fh.read()
+        self.assertIn('u=new U(b,location.href)', html)
+        self.assertIn('u.origin!==location.origin', html)
+        self.assertIn('/^(https?|file):$/.test(u.protocol)', html)
+        self.assertNotIn('location.assign(b)', html)
+
     def test_bad_accent_is_refused(self):
         with self.assertRaises(animate.AnimateError):
             animate.write(self.build(), os.path.join(self.dir, "x.html"), accent="red")

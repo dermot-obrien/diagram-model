@@ -635,10 +635,13 @@ class AnimateTests(Base):
             attrs = re.findall(r"(?i)\s(?:src|poster)\s*=\s*([\"'])([^\"']*)\1", html)
             self.assertTrue(all(v.startswith("data:") for _q, v in attrs), attrs)
 
-    def test_back_link_rejects_anything_but_a_relative_url(self):
+    def test_back_link_is_kept_on_the_page_origin(self):
         _r, _d, html = self.animate(self.participant)
         guard = re.search(r"const BACK=.*?;\n", html).group(0)
-        self.assertIn("[a-z][a-z0-9+.-]*:", guard)
+        # Resolved as a URL against the page, and taken only on the page's own scheme and origin.
+        self.assertIn("u=new U(b,location.href)", guard)
+        self.assertIn("u.origin!==location.origin", guard)
+        self.assertIn("/^(https?|file):$/.test(u.protocol)", guard)
 
     def test_unbuilt_participant_is_noted(self):
         r, _d, _html = self.animate(self.composite)
