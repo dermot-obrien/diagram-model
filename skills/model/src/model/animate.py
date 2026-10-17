@@ -548,7 +548,7 @@ function arrow(a,b,g,cur,sub){const A=B(a),Bb=B(b);if(!A||!Bb)return[0,0,0,0];le
   const path=el("path",at,g);
   if(cur&&!sub){path.style.setProperty("--len",path.getTotalLength());path.classList.add("draw");}
   return[cx,cy,mx,my];}
-const BACK=(()=>{try{const b=new URLSearchParams(location.search).get("back");return b&&!/^[a-z][a-z0-9+.-]*:/i.test(b)&&!/^[\/\\]/.test(b)?b:null;}catch(e){return null;}})();
+const BACK=(()=>{try{const b=new URLSearchParams(location.search).get("back");if(!b)return null;const U=self.URL,u=new U(b,location.href);if(!/^(https?|file):$/.test(u.protocol)||u.protocol!==location.protocol||u.origin!==location.origin)return null;return u.href;}catch(e){return null;}})();
 function drillTarget(s){const u=s&&s.uses;if(!u||!u.href)return null;const S=D.scenarios[si];
   const back=u.back+(BACK?"?back="+encodeURIComponent(BACK):"")+"#"+encodeURIComponent(S.key+"-"+s.n);
   return u.href+"?back="+encodeURIComponent(back)+"#"+encodeURIComponent(u.key);}

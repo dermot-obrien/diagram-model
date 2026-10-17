@@ -4,6 +4,12 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Semantic versions, with the contract defined as: MAJOR for a changed skill `name`, a removed command, a changed CLI interface or a changed model schema; MINOR for new commands, adapters or rules; PATCH for wording and fixes.
 
+## [0.9.1] - 2026-10-17
+
+### Fixed
+
+- The walkthrough's `back` query parameter is resolved as a URL against the page and taken only when it has the page's own scheme and origin. The earlier check rejected a scheme prefix and a leading slash by pattern, which a browser's own URL parsing could get past (leading whitespace, or a tab inside `javascript:`), and code scanning reported the `B` key and the back link as a client-side redirect and cross-site scripting on every generated page.
+
 ## [0.9.0] - 2026-10-15
 
 ### Added
