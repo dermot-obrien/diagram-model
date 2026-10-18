@@ -4,7 +4,7 @@ description: Treat a diagram and a document as two views of one model of boxes a
 license: CC-BY-4.0 AND Apache-2.0. Content under CC BY 4.0, code under Apache-2.0; see LICENSE and NOTICE.
 compatibility: Python 3.9 or newer; Python 3.11 or newer to read a binding file. Rendering needs draw.io desktop installed (the installed build, not the portable exe). Reading YAML needs PyYAML; writing YAML needs nothing.
 metadata:
-  version: "0.9.1"
+  version: "0.9.2"
   homepage: https://github.com/dermot-obrien/diagram-model
   x-skill-requires: ""
   x-derived-from: "https://github.com/dermot-obrien/ai-assisted-work/tree/ac5c7ecfc3f7872737b5760906350efaa4441470/skills/model"
@@ -197,7 +197,7 @@ It declares the draw.io attribute names, the Markdown table contract as section 
 
 A declared catalogue that cannot be read is an error, not an absence. Skipping it silently would turn `not_in_catalogue` into a no-op exactly when the binding is wrong, which is the moment it most needs to speak up.
 
-Composing patterns adds `patterns_root`, `pattern_id` and `approved_statuses` to `[model]`, the `uses` scenario column, and the rules listed in references/composition.md; `[[links]]` and `link_site` and `link_target` are in references/links.md. `contract <file>... [--type NAME] [--near DIR]` checks a document or template has every section, table and column the binding reads, without looking at its rows: run it on a template before anyone writes from it. A repository's pattern types, `[suite.pattern.types.<name>]` with `label`, `idSeries` and `physical`, make `validate` check a document's boxes against its type (`pattern_type_physical`, `pattern_type_series`, `pattern_type_unknown`), and front matter `implements: [AP-004]` is checked for a document (`implements_missing`); docs/configuration.md has both.
+Composing patterns adds `patterns_root`, `pattern_id` and `approved_statuses` to `[model]`, the `uses` scenario column, and the rules listed in references/composition.md; `[[links]]` and `link_site` and `link_target` are in references/links.md. `contract <file>... [--type NAME] [--near DIR]` checks a document or template has, for each entity, one of the sections the binding reads it from, with its table and columns, without looking at its rows: run it on a template before anyone writes from it. A repository's pattern types, `[suite.pattern.types.<name>]` with `label`, `idSeries` and `physical`, make `validate` check a document's boxes against its type (`pattern_type_physical`, `pattern_type_series`, `pattern_type_unknown`), and front matter `implements: [AP-004]` is checked for a document (`implements_missing`); docs/configuration.md has both.
 
 The rules added for local identifiers are `id_unmatched`, `id_attr_mismatch`, `mapping_missing` (warn by default), `mapping_unknown_local`, `mapping_invalid`, `mapping_not_in_catalogue` and `mapping_duplicates_node` (warn).
 
