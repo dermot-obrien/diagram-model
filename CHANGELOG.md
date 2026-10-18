@@ -4,6 +4,12 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Semantic versions, with the contract defined as: MAJOR for a changed skill `name`, a removed command, a changed CLI interface or a changed model schema; MINOR for new commands, adapters or rules; PATCH for wording and fixes.
 
+## [0.9.2] - 2026-10-18
+
+### Fixed
+
+- `contract` treats the tables bound to one entity as alternatives, as `extract` does. It required every bound section in every template, so one binding file serving patterns (Building Blocks, Interfaces) and use cases (Participants, Interactions), as the use-case skill tells a repository to bind them, failed every template with `contract_section`, and so did a legacy heading or column bound beside the current one. A template now needs one section per entity, and each section it has needs the columns of one of the bindings that read it. An entity with none of its sections is one error that names them all.
+
 ## [0.9.1] - 2026-10-17
 
 ### Fixed
