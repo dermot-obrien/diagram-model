@@ -248,7 +248,7 @@ Every finding ends with its rule id. Change a rule's severity in `[rules]` ([con
 | `participant_binding` | error | A binding names a box that is not there, or one box twice | Fix the binding |
 | `scenario_start_finish` | error | A declared Start or Finish the steps do not bear out | Fix the declaration or the steps |
 | `step_uses_mismatch` | warn | The diagram's Uses or regions differ from the document's | `sync` |
-| `contract_section`, `contract_table`, `contract_columns`, `contract_scenario` | error | From `contract`: a template or document lacks a section, a table or a column the binding reads | Add it, or change the binding to match. Warnings name a steps table without Target or Interface |
+| `contract_section`, `contract_table`, `contract_columns`, `contract_scenario` | error | From `contract`: a template or document has none of the sections an entity is read from, or a section lacks its table or a column the binding reads | Add one of the sections it names, or change the binding to match. Warnings name a steps table without Target or Interface |
 | `contract_series`, `contract_type` | warn, error | From `contract --type`: a template's H1 is not in its type's series, or it declares another type | Fix the H1 placeholder or `pattern_type` |
 | `pattern_type_physical` | warn | The document's boxes do not fit its type's `physical`, such as an SBB in a technology-agnostic pattern | Replace the box with the ABB it realises, or change the document's type and series |
 | `pattern_type_series` | warn | A `pattern_type` whose `idSeries` is not the one the document's identifier carries | Renumber the document in its type's series, or correct `pattern_type` |

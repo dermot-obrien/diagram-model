@@ -4,8 +4,10 @@
 A repository may replace any template the framework ships, so long as the replacement
 still has what the model is bound to read. This checks the construct, not the content:
 
-    each [[markdown.tables]] section     a heading with that text, and under it a table
-                                         whose header has every bound column
+    [[markdown.tables]]                  per entity (node, edge), at least one of the
+                                         sections bound to it, the alternatives `read` takes
+                                         rows from; under each one present, a table whose
+                                         header has every column one of its bindings reads
     [markdown.scenarios]                 its section, at least one scenario heading the
                                          heading_pattern matches, and under it a table with
                                          the Step, Actor and Action columns (Target and
@@ -68,32 +70,46 @@ def check(path, cfg, type_name: str = "") -> list:
     def add(sev, rule, msg):
         out.append(Finding(rule, sev, msg, path))
 
-    # Bound tables are each required. The built-in defaults are alternatives, Nodes or
-    # Components, Edges or Interfaces, so one section per entity is enough.
+    # The tables bound to one entity are alternatives: `read` takes rows from whichever of
+    # their sections a document has, so one shared binding can serve several kinds of
+    # document, such as patterns (Building Blocks, Interfaces) and use cases (Participants,
+    # Interactions), or keep a legacy heading beside the current one. A template needs at
+    # least one bound section per entity, and each section it has needs the columns of at
+    # least one of the bindings that read it. The built-in defaults work the same way.
     from .config import default_config
     defaults = cfg.tables == default_config().tables
-    present = {t for _lv, t, _b in titles}
+    entities = []
     for spec in cfg.tables:
-        bodies = [b for _lv, t, b in titles if t == spec.section.strip().lower()]
-        if not bodies:
-            alternatives = [x.section for x in cfg.tables if x.entity == spec.entity]
-            if defaults and any(x.strip().lower() in present for x in alternatives):
-                continue
+        if spec.entity not in entities:
+            entities.append(spec.entity)
+    for entity in entities:
+        specs = [x for x in cfg.tables if x.entity == entity]
+        sections = []
+        for x in specs:
+            if x.section.strip().lower() not in [s.strip().lower() for s in sections]:
+                sections.append(x.section)
+        found = [sec for sec in sections
+                 if any(t == sec.strip().lower() for _lv, t, _b in titles)]
+        if not found:
+            names = " or ".join(repr(x) for x in sections)
             add("error", "contract_section",
-                f"no '{spec.section}' section, which the {spec.entity} table is read from"
+                f"no {names} section, which the {entity} table is read from"
                 if not defaults else
-                f"no {' or '.join(repr(x) for x in alternatives)} section, which the built-in "
-                f"{spec.entity} table is read from; bind [[markdown.tables]] to match the template")
-            if defaults:
-                present.add(spec.section.strip().lower())   # report each entity once
+                f"no {names} section, which the built-in {entity} table is read from; "
+                f"bind [[markdown.tables]] to match the template")
             continue
-        headers = [h for b in bodies for h in _headers(b)]
-        miss = _missing(spec.columns, headers)
-        if not headers:
-            add("error", "contract_table", f"'{spec.section}' has no table")
-        elif miss:
-            add("error", "contract_columns", f"the '{spec.section}' table has no "
-                f"{', '.join(repr(m) for m in miss)} column, which the binding reads")
+        for sec in found:
+            bodies = [b for _lv, t, b in titles if t == sec.strip().lower()]
+            headers = [h for b in bodies for h in _headers(b)]
+            if not headers:
+                add("error", "contract_table", f"'{sec}' has no table")
+                continue
+            misses = [_missing(x.columns, headers) for x in specs
+                      if x.section.strip().lower() == sec.strip().lower()]
+            if all(misses):
+                miss = min(misses, key=len)
+                add("error", "contract_columns", f"the '{sec}' table has no "
+                    f"{', '.join(repr(m) for m in miss)} column, which the binding reads")
 
     sc = cfg.scenarios
     start = next((i for i, (_lv, t, _b) in enumerate(titles) if t == sc.section.strip().lower()), None)

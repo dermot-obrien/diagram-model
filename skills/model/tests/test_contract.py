@@ -136,6 +136,52 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn(("contract_section", "error"), self.rules(text))
         self.assertEqual(self.rules(GOOD), [("contract_section", "error")])
 
+    def test_bound_tables_for_one_entity_are_alternatives(self):
+        # One binding serving patterns and use cases: a template needs one node section and
+        # one edge section, not every one the binding reads.
+        self.write("skill-bindings.toml", BINDINGS + textwrap.dedent("""\
+            [[markdown.tables]]
+            section    = "Participants"
+            entity     = "node"
+            id_pattern = 'SBB-[0-9]{3}'
+            columns    = { id = "Participant", label = "Participant", group = "Kind" }
+
+            [[markdown.tables]]
+            section    = "Interactions"
+            entity     = "edge"
+            id_pattern = 'IF-[0-9]{2}'
+            columns    = { id = "Interface", source = "Provider", target = "Consumer" }
+            """))
+        self.assertEqual(self.rules(GOOD), [])
+        use_case = (GOOD.replace("## Building Blocks", "## Participants")
+                    .replace("| Building Block | Role | Realises |", "| Participant | Role | Kind |")
+                    .replace("## Interfaces", "## Interactions"))
+        self.assertEqual(self.rules(use_case), [])
+        # Neither node section: one error, naming both.
+        p = self.write("t.md", GOOD.replace("## Building Blocks", "## Boxes"))
+        found = contract.check(p, config.load(None, near=p))
+        self.assertEqual([(f.rule, f.severity) for f in found], [("contract_section", "error")])
+        self.assertIn("'Building Blocks' or 'Participants'", found[0].message)
+        # A section that is there still needs its own columns.
+        self.assertEqual(self.rules(use_case.replace("| Kind |", "| Source |")),
+                         [("contract_columns", "error")])
+
+    def test_one_section_bound_twice_needs_the_columns_of_either(self):
+        # A legacy column heading kept beside the current one, as two bindings of a section.
+        self.write("skill-bindings.toml", BINDINGS + textwrap.dedent("""\
+            [[markdown.tables]]
+            section    = "Building Blocks"
+            entity     = "node"
+            id_pattern = 'SBB-[0-9]{3}'
+            columns    = { id = "SBB", label = "SBB" }
+            """))
+        self.assertEqual(self.rules(GOOD), [])
+        self.assertEqual(self.rules(GOOD.replace("| Building Block | Role | Realises |",
+                                                 "| SBB | Role |")), [])
+        self.assertEqual(self.rules(GOOD.replace("| Building Block | Role | Realises |",
+                                                 "| Box | Role |")),
+                         [("contract_columns", "error")])
+
     def test_cli_reads_the_binding_near_another_folder(self):
         elsewhere = tempfile.mkdtemp()
         try:
