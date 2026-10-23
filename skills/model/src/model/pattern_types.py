@@ -22,7 +22,12 @@ level) or all. Unset, any mix is allowed.
 
 A document may name what it implements, `implements: [AP-004]`, as a reference
 architecture names the architecture pattern it makes concrete. Each is looked up as a
-participating pattern is.
+participating pattern is, and each catalogued box of the implemented pattern must be
+accounted for here (`implements_uncovered`): drawn as a box, named in a box's Realises
+column, mapped to by a local box, or named under a Risks heading as a gap. A local role of
+the implemented pattern has no identifier outside it, so it is not counted. A reference
+architecture's mapping of functions onto elements need not be one to one, so one box may
+realise several blocks, and a block may be realised by several boxes.
 
 Nothing here runs for a repository with no types bound, or for a document that is not of
 a bound type, so a use case or any other document is never checked against them.
@@ -32,6 +37,12 @@ from __future__ import annotations
 import re
 
 from . import markdown
+
+# The Building Blocks column a reference architecture names the realised block in. Spare
+# table columns reach the model as attributes keyed by their header, lower-cased.
+REALISES_ATTR = "realises"
+# A section whose heading starts with this records accepted gaps, among other risks.
+RISKS_HEADING = "risk"
 
 PHYSICAL = ("none", "some", "most", "all")
 
@@ -65,6 +76,54 @@ def _ids(value) -> list:
     return []
 
 
+def _mentions(text: str, ident: str) -> bool:
+    return bool(re.search(r"(?<![A-Za-z0-9-])" + re.escape(ident) + r"(?![A-Za-z0-9-])", text))
+
+
+def _risks_text(path) -> str:
+    with open(path, encoding="utf-8-sig") as fh:
+        _meta, raw = markdown.front_matter(fh.read())
+    return "\n".join(body for _lv, title, body in markdown.sections(markdown._clean(raw))
+                     if title.strip().lower().startswith(RISKS_HEADING))
+
+
+def _uncovered(m, cfg, path, pid, target, implemented) -> list:
+    """The catalogued boxes of an implemented pattern that this document does not account for."""
+    from .composition import _canon, _named
+    tm, tcfg = implemented.model, implemented.cfg
+    needed = []
+    for n in tm.nodes:
+        for ident in sorted(_canon(tm, tcfg, n.id)):
+            if ident not in needed:
+                needed.append(ident)
+    if not needed:
+        return []
+    drawn = set()
+    for n in m.nodes:
+        drawn |= _canon(m, cfg, n.id)
+    realises = "\n".join(str(n.attrs.get(REALISES_ATTR, "")) for n in m.nodes)
+    risks = None
+    missing = []
+    for ident in needed:
+        if ident in drawn or _mentions(realises, ident):
+            continue
+        if risks is None:
+            risks = _risks_text(path)
+        if _mentions(risks, ident):
+            continue
+        missing.append(_named(tm, ident))
+    if not missing:
+        return []
+    from .validate import _add
+    out = []
+    shown = ", ".join(missing[:5]) + (f" and {len(missing) - 5} more" if len(missing) > 5 else "")
+    _add(out, cfg, "implements_uncovered",
+         f"{pid or 'this document'} implements {target}, but nothing here accounts for "
+         f"{shown}: name it in a box's Realises column, draw it, or record it as a gap "
+         f"under Risks and Trade-offs", pid or path)
+    return out
+
+
 def findings(m, cfg, resolver=None) -> list:
     from .validate import _add, node_level, catalogue_levels
     out = []
@@ -88,6 +147,8 @@ def findings(m, cfg, resolver=None) -> list:
                 _add(out, cfg, "implements_missing",
                      f"{pid or 'this document'} implements {target}, but there is no document "
                      f"for {target} under {searched}", where)
+            elif len(found) == 1:
+                out += _uncovered(m, cfg, path, pid, target, r.load(found[0]))
 
     if not cfg.pattern_types:
         return out

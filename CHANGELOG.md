@@ -4,6 +4,12 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Semantic versions, with the contract defined as: MAJOR for a changed skill `name`, a removed command, a changed CLI interface or a changed model schema; MINOR for new commands, adapters or rules; PATCH for wording and fixes.
 
+## [0.10.0] - 2026-10-23
+
+### Added
+
+- `implements_uncovered`, a warning: a document that implements a pattern must account for each of that pattern's catalogued boxes, so a reference architecture cannot leave one of its architecture pattern's blocks unrealised without saying so. A block is accounted for when it is drawn as a box, named in a Building Blocks column headed `Realises` (one box may realise several blocks, and one block may take several boxes, as a reference architecture's mapping of functions onto elements need not be one to one), mapped to by a local box in Catalogue Mapping, or named in a section whose heading starts with Risks, as a gap. A local role of the implemented pattern has no identifier outside it and is not counted, unless that pattern maps it to a catalogued block. The message names each block missing. Turn it off with `[rules] implements_uncovered = "off"`.
+
 ## [0.9.0] - 2026-10-15
 
 ### Added

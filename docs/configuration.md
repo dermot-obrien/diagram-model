@@ -255,7 +255,7 @@ Read from a document's YAML front matter; flat keys and one level of nesting.
 | `version` | string | Carried into the model |
 | `status` | string | Compared with `approved_statuses` by the composition's approval gate |
 | `pattern_type` | string | One of `[suite.pattern.types]`. Unset, the type whose `idSeries` the document's identifier carries |
-| `implements` | list of identifiers | The patterns this one makes concrete, as a reference architecture names the architecture pattern it implements: `implements: [AP-004]`. Each is looked up as a participating pattern is; one with no document is `implements_missing` |
+| `implements` | list of identifiers | The patterns this one makes concrete, as a reference architecture names the architecture pattern it implements: `implements: [AP-004]`. Each is looked up as a participating pattern is; one with no document is `implements_missing`. Each catalogued box of an implemented pattern must be accounted for here, or it is `implements_uncovered`: drawn as a box, named in a Building Blocks column headed `Realises` (one box may name several, comma-separated), mapped to by a local box in Catalogue Mapping, or named in a section whose heading starts with Risks, as a gap. A local role of the implemented pattern is not counted |
 | `model.diagram` | path, relative to the document | The diagram this document is paired with. Used by `validate` without `--against`, `rename` without `--drawio`, `animate` without `--diagram`, and `scan` |
 
 ```yaml

@@ -82,6 +82,8 @@ DEFAULT_RULES = {
     "pattern_type_series": "warn",    # a type's document numbered in another series
     "pattern_type_physical": "warn",  # more or fewer physical boxes than the type allows
     "implements_missing": "warn",     # front matter implements an id with no document
+    "implements_uncovered": "warn",   # a catalogued box of the implemented pattern
+                                      # that nothing here realises, draws or calls a gap
 }
 
 # A pattern's identifier, as a Uses cell names it: `PAT-905 S1`.

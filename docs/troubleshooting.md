@@ -254,4 +254,5 @@ Every finding ends with its rule id. Change a rule's severity in `[rules]` ([con
 | `pattern_type_series` | warn | A `pattern_type` whose `idSeries` is not the one the document's identifier carries | Renumber the document in its type's series, or correct `pattern_type` |
 | `pattern_type_unknown` | error | A `pattern_type` that is not in `[suite.pattern.types]` | Use a bound type, or bind it |
 | `implements_missing` | warn | Front matter `implements` names an identifier with no document | Fix the identifier, or write the pattern |
+| `implements_uncovered` | warn | A catalogued box of an implemented pattern that this document does not draw, realise, map to or call a gap. The message names each one | Name the block in the Realises column of the box that makes it concrete, or record it as a gap in Risks and Trade-offs |
 | `link_unresolved` | warn | A `[[links]]` rule matches an id but its `locate` glob finds nothing | Fix the glob, or create the page |

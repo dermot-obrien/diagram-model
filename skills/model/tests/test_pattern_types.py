@@ -55,12 +55,19 @@ BINDINGS = textwrap.dedent("""\
     """)
 
 
-def doc(pid, title, blocks, front=""):
+def doc(pid, title, blocks, front="", tail=""):
+    """A pattern document. A block given as (box, realised) gets a Realises column."""
+    realising = any(isinstance(b, tuple) for b in blocks)
     out = ["---", "status: Draft", *([front] if front else []), "---", "",
-           f"# {pid} {title}", "", "## Building Blocks", "",
-           "| Building Block | Role |", "|---|---|"]
-    out += [f"| {b} | a role |" for b in blocks]
-    return "\n".join(out) + "\n"
+           f"# {pid} {title}", "", "## Building Blocks", ""]
+    if realising:
+        out += ["| Building Block | Role | Realises |", "|---|---|---|"]
+        out += [f"| {b[0]} | a role | {b[1]} |" if isinstance(b, tuple) else f"| {b} | a role | |"
+                for b in blocks]
+    else:
+        out += ["| Building Block | Role |", "|---|---|"]
+        out += [f"| {b} | a role |" for b in blocks]
+    return "\n".join(out) + "\n" + (f"\n{tail}\n" if tail else "")
 
 
 class TypeTests(unittest.TestCase):
@@ -128,9 +135,97 @@ class TypeTests(unittest.TestCase):
 
     def test_implements_finds_its_pattern(self):
         self.pattern("integration/AP-004-x", "AP-004", "X", ["ABB-001 Gateway"])
-        p = self.pattern("platform/RA-005-x", "RA-005", "X", ["SBB-001 Kong", "SBB-002 Postgres"],
+        p = self.pattern("platform/RA-005-x", "RA-005", "X",
+                         [("SBB-001 Kong", "ABB-001 Gateway"), "SBB-002 Postgres"],
                          front="implements: [AP-004]")
         self.assertEqual(self.rules(p), [])
+
+    # implements_uncovered: every catalogued box of the implemented pattern is accounted for.
+
+    def implemented(self):
+        self.pattern("AP-010-x", "AP-010", "X", ["ABB-001 Gateway", "ABB-002 Store", "01 Client"])
+
+    def findings(self, path):
+        c = config.load(None, near=path)
+        return [f for f in validate.check(markdown.read(path, c), c) if f.rule == "implements_uncovered"]
+
+    def test_a_block_nothing_realises_warns_and_is_named(self):
+        self.implemented()
+        p = self.pattern("RA-011-x", "RA-011", "X",
+                         [("SBB-001 Kong", "ABB-001 Gateway"), "SBB-002 Postgres"],
+                         front="implements: [AP-010]")
+        got = self.findings(p)
+        self.assertEqual([(f.rule, f.severity) for f in got], [("implements_uncovered", "warn")])
+        self.assertIn("ABB-002 Store", got[0].message)
+        self.assertNotIn("ABB-001", got[0].message)
+        self.assertNotIn("01 Client", got[0].message)   # a local role is not counted
+
+    def test_one_box_may_realise_two_blocks(self):
+        self.implemented()
+        p = self.pattern("RA-012-x", "RA-012", "X",
+                         [("SBB-001 Kong", "ABB-001 Gateway, ABB-002 Store")],
+                         front="implements: [AP-010]")
+        self.assertEqual(self.findings(p), [])
+
+    def test_a_block_drawn_as_itself_is_accounted_for(self):
+        self.implemented()
+        p = self.pattern("RA-013-x", "RA-013", "X",
+                         [("SBB-001 Kong", "ABB-001 Gateway"), "SBB-002 Postgres", "SBB-003 Redis",
+                          "ABB-002 Store"],
+                         front="implements: [AP-010]")
+        self.assertEqual(self.findings(p), [])
+
+    def test_a_gap_named_under_risks_is_accounted_for(self):
+        self.implemented()
+        tail = ("## Decisions\n\nABB-001 Gateway is mentioned here.\n\n"
+                "## Risks and Trade-offs\n\n| Risk/Trade-off | Mitigation |\n|---|---|\n"
+                "| ABB-002 Store has no product yet | Chosen in RA-020 |")
+        p = self.pattern("RA-014-x", "RA-014", "X", ["SBB-001 Kong"],
+                         front="implements: [AP-010]", tail=tail)
+        got = self.findings(p)
+        self.assertEqual(len(got), 1)
+        self.assertIn("ABB-001 Gateway", got[0].message)   # a mention outside Risks does not count
+        self.assertNotIn("ABB-002", got[0].message)
+
+    def test_a_gap_in_a_comment_does_not_count(self):
+        self.implemented()
+        tail = "## Risks and Trade-offs\n\n<!-- ABB-001 and ABB-002 are gaps -->\n"
+        p = self.pattern("RA-015-x", "RA-015", "X", ["SBB-001 Kong"],
+                         front="implements: [AP-010]", tail=tail)
+        self.assertEqual(len(self.findings(p)), 1)
+
+    def test_a_local_box_mapped_to_the_block_accounts_for_it(self):
+        self.implemented()
+        tail = ("## Catalogue Mapping\n\n| Local ID | Maps To | Relationship |\n|---|---|---|\n"
+                "| 07 | ABB-002 Store | realises |")
+        p = self.pattern("RA-016-x", "RA-016", "X",
+                         [("SBB-001 Kong", "ABB-001 Gateway"), "07 Store, no product yet"],
+                         front="implements: [AP-010]", tail=tail)
+        self.assertEqual(self.findings(p), [])
+
+    def test_a_local_role_mapped_in_the_pattern_must_be_accounted_for(self):
+        tail = ("## Catalogue Mapping\n\n| Local ID | Maps To | Relationship |\n|---|---|---|\n"
+                "| 01 | ABB-002 Store | realises |")
+        self.pattern("AP-017-x", "AP-017", "X", ["ABB-001 Gateway", "01 Store role"], tail=tail)
+        p = self.pattern("RA-018-x", "RA-018", "X", [("SBB-001 Kong", "ABB-001 Gateway")],
+                         front="implements: [AP-017]")
+        got = self.findings(p)
+        self.assertEqual(len(got), 1)
+        self.assertIn("ABB-002", got[0].message)
+
+    def test_each_implemented_pattern_is_checked(self):
+        self.implemented()
+        self.pattern("AP-019-x", "AP-019", "X", ["ABB-002 Store"])
+        p = self.pattern("RA-020-x", "RA-020", "X",
+                         [("SBB-001 Kong", "ABB-001 Gateway"), ("SBB-002 Postgres", "ABB-002 Store")],
+                         front="implements: [AP-010, AP-019]")
+        self.assertEqual(self.findings(p), [])
+
+    def test_the_rule_can_be_turned_off(self):
+        self.implemented()
+        self.write("skill-bindings.toml", BINDINGS + '\n[rules]\nimplements_uncovered = "off"\n')
+        p = self.pattern("RA-021-x", "RA-021", "X", ["SBB-001 Kong"], front="implements: [AP-010]")
+        self.assertEqual(self.findings(p), [])
 
     def test_implements_a_missing_pattern_warns(self):
         p = self.pattern("RA-006-x", "RA-006", "X", ["SBB-001 Kong"],
